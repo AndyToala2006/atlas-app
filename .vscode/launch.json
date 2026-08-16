@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Atlas - dispositivo fisico (192.168.1.4)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=http://192.168.1.4:8000",
+        "--dart-define=APP_ENV=dispositivo-fisico"
+      ]
+    },
+    {
+      "name": "Atlas - emulador Android (10.0.2.2)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=http://10.0.2.2:8000",
+        "--dart-define=APP_ENV=emulador"
+      ]
+    },
+    {
+      "name": "Atlas - navegador (localhost)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "toolArgs": [
+        "--dart-define=API_BASE_URL=http://localhost:8000",
+        "--dart-define=APP_ENV=web"
+      ]
+    }
+  ]
+}
