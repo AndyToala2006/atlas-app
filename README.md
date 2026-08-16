@@ -28,8 +28,10 @@ Todas las versiones fueron obtenidas ejecutando los comandos de la columna derec
 | DevTools | 2.54.2 | `flutter --version` |
 | JDK | Microsoft OpenJDK 17.0.20 LTS | `java -version` |
 | Android SDK Platform | android-36 | `sdkmanager --list_installed` |
-| Android SDK Build-Tools | 36.0.0 | `sdkmanager --list_installed` |
+| Android SDK Build-Tools | 36.0.0 y 35.0.0 | `sdkmanager --list_installed` |
 | Android SDK Platform-Tools | 37.0.1 (adb 1.0.41) | `adb version` |
+| Android NDK | 28.2.13676358 | `sdkmanager --list_installed` |
+| CMake | 3.22.1 | `sdkmanager --list_installed` |
 | Android CLI / cmdline-tools | 15859902 (`latest`) | `sdkmanager --version` |
 | Editor | Visual Studio Code + extensiones Dart y Flutter | `code --version` |
 | Paquete `http` | 1.5.0 | `flutter pub deps` |
@@ -96,6 +98,8 @@ C:\Android\Sdk\cmdline-tools\latest\bin
 android sdk install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 ```
 
+> La primera compilación de Gradle descarga por su cuenta los componentes que le faltan —NDK 28.2.13676358, CMake 3.22.1 y build-tools 35.0.0— y los deja en `C:\Android\Sdk`. Esa primera compilación tarda alrededor de 9 minutos; las siguientes son incrementales.
+
 **Paso 5 — Enlazar Flutter con el SDK y el JDK**
 
 ```powershell
@@ -131,7 +135,17 @@ code --install-extension Dart-Code.flutter
 
 El archivo [`.vscode/extensions.json`](.vscode/extensions.json) las declara como recomendadas del proyecto.
 
-### 1.3 Comando único de verificación
+### 1.3 Compilación de verificación
+
+Para comprobar que toda la cadena (Flutter → Gradle → JDK → Android SDK) funciona sin necesidad de tener el teléfono conectado:
+
+```powershell
+flutter build apk --debug --dart-define=API_BASE_URL=http://192.168.1.4:8000
+```
+
+Resultado esperado: `√ Built build\app\outputs\flutter-apk\app-debug.apk` (≈138 MB en modo depuración, porque incluye las tres arquitecturas y los símbolos).
+
+### 1.4 Comando único de verificación
 
 El repositorio incluye un script que imprime en una sola corrida el sistema operativo, todas las versiones, el diagnóstico completo, los dispositivos conectados, las IP de la red local y el estado del backend:
 
