@@ -9,7 +9,7 @@
 
 param(
     [switch]$Quitar,
-    [string]$Subred = '192.168.1.0/24',
+    [string]$Subred,
     [int]$Puerto = 8000
 )
 
@@ -29,6 +29,38 @@ if ($Quitar) {
     exit 0
 }
 
+# La subred se deduce de la IP que el router asigno a este computador. Fijarla
+# a mano es fragil: al pasar a otra red (192.168.100.x en vez de 192.168.1.x)
+# la regla queda acotada a un rango donde el telefono no esta, y Windows sigue
+# bloqueando el puerto 8000 sin dar ninguna senal clara.
+if (-not $Subred) {
+    $red = Get-NetIPAddress -AddressFamily IPv4 |
+        Where-Object {
+            $_.IPAddress -notlike '127.*' -and
+            $_.IPAddress -notlike '169.254.*' -and
+            $_.InterfaceAlias -notlike '*WSL*' -and
+            $_.InterfaceAlias -notlike '*Hyper-V*' -and
+            $_.InterfaceAlias -notlike '*Loopback*'
+        } | Select-Object -First 1
+
+    if (-not $red) {
+        Write-Host "No se pudo determinar la red local. Conectate a la red Wi-Fi." -ForegroundColor Red
+        exit 1
+    }
+
+    if ($red.PrefixLength -ne 24) {
+        Write-Host ("Aviso: la interfaz '{0}' usa mascara /{1}, no /24." -f $red.InterfaceAlias, $red.PrefixLength) -ForegroundColor Yellow
+        Write-Host "Si la regla no surte efecto, indica la subred a mano con -Subred." -ForegroundColor Yellow
+    }
+
+    $o = $red.IPAddress.Split('.')
+    $Subred = '{0}.{1}.{2}.0/24' -f $o[0], $o[1], $o[2]
+    Write-Host ("IP de este computador : {0}  ({1})" -f $red.IPAddress, $red.InterfaceAlias)
+}
+
+Write-Host "Subred autorizada     : $Subred"
+Write-Host ""
+
 Remove-NetFirewallRule -DisplayName $nombre -ErrorAction SilentlyContinue
 
 New-NetFirewallRule `
@@ -42,5 +74,8 @@ New-NetFirewallRule `
     -Profile Private | Out-Null
 
 Write-Host "Regla creada correctamente." -ForegroundColor Green
-Get-NetFirewallRule -DisplayName $nombre |
-    Format-List DisplayName, Enabled, Direction, Action, Profile
+$regla = Get-NetFirewallRule -DisplayName $nombre
+$regla | Format-List DisplayName, Enabled, Direction, Action, Profile
+# El alcance real no vive en el objeto de la regla sino en su filtro de
+# direcciones: es la prueba de que el puerto no quedo abierto a cualquier origen.
+$regla | Get-NetFirewallAddressFilter | Format-List RemoteAddress
