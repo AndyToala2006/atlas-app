@@ -2,12 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Atlas - dispositivo fisico (192.168.1.4)",
+      "name": "Atlas - dispositivo fisico (192.168.100.116)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
       "toolArgs": [
-        "--dart-define=API_BASE_URL=http://192.168.1.4:8000",
+        "--dart-define=API_BASE_URL=http://192.168.100.116:8000",
         "--dart-define=APP_ENV=dispositivo-fisico"
       ]
     },

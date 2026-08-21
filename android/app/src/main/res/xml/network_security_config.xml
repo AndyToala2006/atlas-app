@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
   Politica de seguridad de red de Atlas.
 
@@ -17,9 +17,14 @@
 
     <!-- Excepcion unica para el entorno de desarrollo. -->
     <domain-config cleartextTrafficPermitted="true">
-        <!-- IP del computador de desarrollo en la red Wi-Fi local.
-             Es la direccion que usa el DISPOSITIVO FISICO para alcanzar el backend. -->
-        <domain includeSubdomains="false">192.168.1.4</domain>
+        <!-- IP del computador de desarrollo en la red Wi-Fi local. Es la
+             direccion que usa el DISPOSITIVO FISICO para alcanzar el backend.
+             La asigna el router por DHCP y cambia al reconectarse, por lo que
+             la mantiene actualizada herramientas/configurar-host.ps1
+             (run.ps1 lo invoca solo). No editar a mano las dos lineas de abajo. -->
+        <!-- HOST-DESARROLLO:INICIO -->
+        <domain includeSubdomains="false">192.168.100.116</domain>
+        <!-- HOST-DESARROLLO:FIN -->
 
         <!-- Alias que el emulador de Android usa para llegar al localhost del anfitrion. -->
         <domain includeSubdomains="false">10.0.2.2</domain>

@@ -15,7 +15,8 @@ Haz esto en orden. Si algo falla aquí, arréglalo antes de encender la grabaci�
 - [ ] **Regla de firewall activa.** PowerShell **como administrador**: `powershell -ExecutionPolicy Bypass -File .\herramientas\abrir-firewall.ps1`.
 - [ ] **Teléfono conectado por USB**, con depuración USB activada y en la **misma red Wi-Fi** que el computador. Comprueba con `adb devices` que aparezca como `device`.
 - [ ] **Licencias aceptadas.** Ejecuta `flutter doctor --android-licenses` y responde `y` hasta el final. Luego `flutter doctor` debe decir `No issues found!`.
-- [ ] **IP confirmada.** Anota la IP que muestra `run.ps1` al arrancar; es la que vas a mencionar en el video.
+- [ ] **IP confirmada.** Anota la IP que muestra `run.ps1` al arrancar; es la que vas a mencionar en el video. El script sincroniza solo la política de seguridad de red, pero verifica que el mensaje diga la IP correcta.
+- [ ] **Docker Desktop abierto.** No basta con que el contenedor exista: el motor de Docker tiene que estar corriendo. Si `docker ps` da error de conexión, abre Docker Desktop y espera a que arranque.
 - [ ] **Pantalla limpia.** Cierra pestañas y ventanas que no uses. Sube el tamaño de letra de la terminal (Ctrl + rueda del ratón) para que se lea en el video.
 - [ ] **Grabación del teléfono.** Puedes apuntar la cámara al teléfono o proyectar la pantalla con `scrcpy`. Lo importante es que se vea la aplicación funcionando en el dispositivo real.
 
@@ -131,9 +132,11 @@ Este bloque vale puntos en dos criterios: conectividad y fundamentación. **No l
 >
 > Si corriera en un emulador de Android, tendría que usar `10.0.2.2`, que es el alias que el emulador reserva para el `localhost` del computador anfitrión. Si pusiera `127.0.0.1`, apuntaría al propio dispositivo virtual y no encontraría nada.
 >
-> Pero yo estoy usando un **teléfono físico**. El teléfono es otra máquina en la red Wi-Fi. Entonces tiene que alcanzar a mi computador por su **IP en la red local**, que en este momento es `192.168.1.4`. Si pusiera `localhost`, el teléfono se buscaría a sí mismo.
+> Pero yo estoy usando un **teléfono físico**. El teléfono es otra máquina en la red Wi-Fi. Entonces tiene que alcanzar a mi computador por su **IP en la red local**, que en este momento es `192.168.100.116`. Si pusiera `localhost`, el teléfono se buscaría a sí mismo.
 >
 > Por eso la URL no está quemada en el código. Se inyecta al compilar con `--dart-define`, que es el mecanismo de variables de entorno de Dart. El mismo código sirve para los tres destinos sin tocar una línea.
+
+> **Di la IP que te mostró `run.ps1`, no la del guion.** El router la asigna por DHCP y cambia. Si no coincide, corrige la frase sobre la marcha.
 >
 > Faltan dos permisos más. El primero: desde Android 9, el sistema **bloquea el tráfico HTTP sin cifrar** por defecto. Mi backend de desarrollo va por `http`, no por `https`. Miren cómo lo resolví: en `network_security_config.xml` la regla general dice `cleartextTrafficPermitted` en **falso**, o sea, ningún dominio puede viajar sin cifrar. Y abajo hay una excepción **acotada** solo a los hosts de desarrollo: mi IP local, el alias del emulador y localhost.
 >
@@ -161,7 +164,7 @@ flutter devices
 
 > "Primero confirmo que Flutter ve mi teléfono. Ahí está, listado como dispositivo.
 >
-> Ahora lanzo la aplicación con `run.ps1`. El script detecta la IP del computador y la inyecta como variable de entorno. Vean en la salida: `API_BASE_URL` igual a `http://192.168.1.4:8000`.
+> Ahora lanzo la aplicación con `run.ps1`. El script hace dos cosas: detecta la IP del computador y la inyecta como variable de entorno, y además sincroniza la política de seguridad de red con esa misma IP. Vean en la salida: `API_BASE_URL` igual a `http://192.168.100.116:8000`.
 >
 > Está compilando e instalando el APK directamente en el teléfono."
 
@@ -236,6 +239,8 @@ El taller pide esto de forma explícita. **Sé honesto: da puntos, no los quita.
 > La principal fue el direccionamiento. Mi primer intento fue `localhost:8000` y no conectaba. El error tenía sentido una vez que entendí que `localhost`, dentro del teléfono, significa el propio teléfono. Ahí quedó claro por qué hay que usar la IP de la red local.
 >
 > La segunda fue el firewall. Aunque la IP era correcta, Windows bloqueaba la conexión entrante al puerto 8000. Se resolvió con una regla acotada a la subred local, no abriendo el puerto a cualquier origen.
+>
+> Ligada a esa, apareció otra: el router cambió la IP del computador entre una sesión de trabajo y la siguiente. La URL base se corregía sola, pero la política de seguridad de red seguía autorizando la dirección vieja, así que Android bloqueaba la conexión sin dar una pista clara. Por eso automaticé la sincronización: el lanzador actualiza el XML con la IP actual antes de compilar, y la excepción sigue acotada a un solo host.
 >
 > Y la tercera fue el bloqueo de tráfico sin cifrar de Android. La salida fácil era activar `usesCleartextTraffic` a nivel de aplicación, pero eso abre el tráfico sin cifrar hacia todo internet. Preferí la política de seguridad de red con excepción acotada, que es la práctica correcta."
 

@@ -140,7 +140,7 @@ El archivo [`.vscode/extensions.json`](.vscode/extensions.json) las declara como
 Para comprobar que toda la cadena (Flutter → Gradle → JDK → Android SDK) funciona sin necesidad de tener el teléfono conectado:
 
 ```powershell
-flutter build apk --debug --dart-define=API_BASE_URL=http://192.168.1.4:8000
+flutter build apk --debug --dart-define=API_BASE_URL=http://192.168.100.116:8000
 ```
 
 Resultado esperado: `√ Built build\app\outputs\flutter-apk\app-debug.apk` (≈138 MB en modo depuración, porque incluye las tres arquitecturas y los símbolos).
@@ -193,7 +193,7 @@ El backend de Atlas se sirve en el puerto **8000** del computador de desarrollo.
 
 | Destino | Dirección correcta | Motivo |
 |---|---|---|
-| **Dispositivo físico** | `http://192.168.1.4:8000` | El teléfono es otra máquina en la red Wi-Fi. Debe alcanzar al computador por su **IP en la LAN**. `localhost` apuntaría al propio teléfono. |
+| **Dispositivo físico** | `http://192.168.100.116:8000` | El teléfono es otra máquina en la red Wi-Fi. Debe alcanzar al computador por su **IP en la LAN**. `localhost` apuntaría al propio teléfono. |
 | Emulador de Android | `http://10.0.2.2:8000` | El emulador aísla su red; `10.0.2.2` es el alias que reserva para el `localhost` del anfitrión. `127.0.0.1` apuntaría al dispositivo virtual. |
 | Navegador / escritorio | `http://localhost:8000` | La aplicación corre en el mismo equipo que el backend. |
 
@@ -205,7 +205,7 @@ Get-NetIPAddress -AddressFamily IPv4 |
   Select-Object IPAddress, InterfaceAlias
 ```
 
-> La IP asignada por DHCP puede cambiar al reconectarse a la red. El script `run.ps1` la detecta automáticamente en cada ejecución.
+> La IP asignada por DHCP puede cambiar al reconectarse a la red. Eso afecta a **dos** lugares: la URL base y la política de seguridad de red (§4). `run.ps1` resuelve ambos: detecta la IP, la inyecta como variable de entorno y sincroniza `network_security_config.xml` llamando a `herramientas/configurar-host.ps1`. Si la política conserva una IP vieja, Android bloquea la conexión aunque la URL base sea correcta.
 
 ---
 
@@ -223,7 +223,7 @@ static const String apiBaseUrl = String.fromEnvironment(
 Así, el mismo código apunta al backend local, al emulador o a un servidor remoto sin modificar una sola línea:
 
 ```powershell
-flutter run --dart-define=API_BASE_URL=http://192.168.1.4:8000 --dart-define=APP_ENV=dispositivo
+flutter run --dart-define=API_BASE_URL=http://192.168.100.116:8000 --dart-define=APP_ENV=dispositivo
 ```
 
 El repositorio incluye tres formas equivalentes de lanzarlo:
@@ -247,7 +247,9 @@ Desde Android 9 (API 28) el sistema **bloquea el tráfico HTTP sin cifrar** de f
 
     <!-- Excepción única para el entorno de desarrollo. -->
     <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">192.168.1.4</domain>
+        <!-- HOST-DESARROLLO:INICIO -->
+        <domain includeSubdomains="false">192.168.100.116</domain>
+        <!-- HOST-DESARROLLO:FIN -->
         <domain includeSubdomains="false">10.0.2.2</domain>
         <domain includeSubdomains="false">localhost</domain>
         <domain includeSubdomains="false">127.0.0.1</domain>
@@ -255,7 +257,16 @@ Desde Android 9 (API 28) el sistema **bloquea el tráfico HTTP sin cifrar** de f
 </network-security-config>
 ```
 
-Lo importante es lo que **no** se hizo: no se activó `android:usesCleartextTraffic="true"` a nivel de aplicación, que habría abierto el tráfico sin cifrar hacia cualquier destino de internet. La `base-config` mantiene la exigencia de HTTPS para todo lo demás.
+Lo importante es lo que **no** se hizo: no se activó `android:usesCleartextTraffic="true"` a nivel de aplicación, que habría abierto el tráfico sin cifrar hacia cualquier destino de internet. Tampoco se autorizó un rango completo de la red: la excepción cubre **una sola dirección**. La `base-config` mantiene la exigencia de HTTPS para todo lo demás.
+
+Las marcas `HOST-DESARROLLO` delimitan la única línea que cambia cuando el router asigna otra IP. La actualiza el script:
+
+```powershell
+.\herramientas\configurar-host.ps1              # detecta la IP actual
+.\herramientas\configurar-host.ps1 -Ip 10.0.0.5 # o se fuerza una concreta
+```
+
+`run.ps1` lo invoca solo antes de cada ejecución sobre dispositivo físico, de modo que la excepción sigue acotada a un host sin tener que editar el XML a mano. Al ser un recurso de Android, el cambio exige recompilar: la recarga en caliente no lo aplica.
 
 > **Antes de cualquier distribución (release / Play Store) el bloque `<domain-config>` debe eliminarse** y el backend debe servirse por HTTPS.
 
@@ -354,6 +365,7 @@ atlas-app/
 │       └── network_security_config.xml Excepción acotada de tráfico sin cifrar
 ├── herramientas/
 │   ├── verificar-entorno.ps1           Reporte completo del entorno
+│   ├── configurar-host.ps1             Sincroniza la política de red con la IP actual
 │   └── abrir-firewall.ps1              Regla de firewall para el puerto 8000
 ├── test/
 │   └── widget_test.dart                Pruebas de arranque y navegación
@@ -372,7 +384,7 @@ Declaradas de forma explícita, como exige el taller:
 
 1. **No se puede compilar para iOS.** La cadena de herramientas de Apple (Xcode) solo existe en macOS. El código fuente de iOS está generado y versionado, pero la compilación de ese objetivo queda fuera del alcance con el hardware disponible.
 2. **No hay emulador configurado.** Se optó por dispositivo físico (§2.2). Ejecutar un dispositivo virtual requeriría instalar Android Studio y las imágenes del sistema.
-3. **La IP local depende de DHCP.** Si el router asigna otra dirección, hay que relanzar la aplicación (`run.ps1` la detecta sola) y actualizar `network_security_config.xml`.
+3. **La IP local depende de DHCP.** Si el router asigna otra dirección, hay que recompilar: `run.ps1` detecta la nueva IP y sincroniza la política de seguridad de red, pero al ser un recurso de Android el cambio no se aplica con recarga en caliente.
 4. **El teléfono y el computador deben estar en la misma red Wi-Fi.** Las redes con aislamiento de clientes (*AP isolation*), habitual en redes públicas o corporativas, impiden la conexión aunque el firewall esté abierto.
 5. **El tráfico va sin cifrar.** Aceptable solo en desarrollo y acotado a los hosts declarados (§4). Un despliegue real exige HTTPS.
 6. **El backend debe estar levantado antes de arrancar la aplicación.** Si Docker no está corriendo, la pantalla de conexión muestra el error y la sugerencia correspondiente.

@@ -5,7 +5,7 @@
 /// entorno de Dart/Flutter. Así, el mismo código apunta al backend local, al
 /// emulador o a un servidor remoto sin modificar una sola línea.
 ///
-///   flutter run --dart-define=API_BASE_URL=http://192.168.1.4:8000
+///   flutter run --dart-define=API_BASE_URL=http://192.168.100.116:8000
 ///
 /// El valor por defecto corresponde al emulador de Android, donde 10.0.2.2 es
 /// el alias que el emulador usa para llegar al `localhost` del computador

@@ -33,8 +33,14 @@ Write-Host "Destino      : $Destino"
 Write-Host "API_BASE_URL : $base"
 Write-Host ""
 
-if ($Destino -eq 'dispositivo' -and $base -notmatch '192\.168\.|10\.|172\.') {
-    Write-Host "Aviso: '$Ip' no parece una IP de red local. Verifica la conexion Wi-Fi." -ForegroundColor Yellow
+if ($Destino -eq 'dispositivo') {
+    if ($base -notmatch '192\.168\.|10\.|172\.') {
+        Write-Host "Aviso: '$Ip' no parece una IP de red local. Verifica la conexion Wi-Fi." -ForegroundColor Yellow
+    }
+    # La politica de seguridad de red debe autorizar la IP actual, o Android
+    # bloquea el trafico sin cifrar aunque la URL base sea la correcta.
+    & (Join-Path $PSScriptRoot 'herramientas\configurar-host.ps1') -Ip $Ip
+    Write-Host ""
 }
 
 flutter run `
