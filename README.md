@@ -295,18 +295,37 @@ powershell -ExecutionPolicy Bypass -File .\herramientas\abrir-firewall.ps1 -Quit
 
 ### 5.1 Levantar el backend
 
+El backend es un repositorio independiente. Si aún no lo tienes:
+
 ```powershell
-cd ..\atlas-backend
+git clone https://github.com/AndyToala2006/atlas-backend.git
+```
+
+Desde la carpeta del backend, en su propia terminal:
+
+```powershell
 docker compose up -d
 curl http://localhost:8000/health      # {"status":"ok","servicio":"atlas-backend"}
 ```
 
-### 5.2 Lanzar la aplicación
+> Requiere Docker Desktop en ejecución. Si `docker ps` responde con un error de
+> conexión al *daemon*, abre Docker Desktop y espera a que termine de arrancar.
+> Sin un archivo `.env`, la API usa el PostgreSQL del propio `docker-compose.yml`,
+> que es lo preferible para esta demostración: una dependencia externa menos.
+
+Para cargar datos de prueba:
 
 ```powershell
-cd ..\atlas-app
+docker compose exec api python seed.py
+```
+
+### 5.2 Lanzar la aplicación
+
+Desde la carpeta de **este** repositorio, en una segunda terminal:
+
+```powershell
 flutter devices        # confirmar que el teléfono aparece listado
-.\run.ps1              # detecta la IP y arranca con --dart-define
+.\run.ps1              # detecta la IP, sincroniza la política de red y arranca
 ```
 
 ### 5.3 Recarga en caliente
