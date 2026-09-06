@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../modelos/idea.dart';
+import '../pantallas/pantalla_carga.dart';
 import '../pantallas/pantalla_conexion.dart';
 import '../pantallas/pantalla_detalle_idea.dart';
 import '../pantallas/pantalla_inicio.dart';
@@ -19,6 +20,9 @@ import 'guardia_sesion.dart';
 class Rutas {
   const Rutas._();
 
+  /// Arranque: se comprueba si hay una sesión guardada en el almacén cifrado.
+  static const String carga = '/';
+
   // Públicas
   static const String login = '/login';
   static const String registro = '/registro';
@@ -29,10 +33,13 @@ class Rutas {
   static const String nuevaIdea = '/ideas/nueva';
   static const String detalleIdea = '/ideas/detalle';
 
-  static const String rutaInicial = login;
+  static const String rutaInicial = carga;
 
   static Route<dynamic> generar(RouteSettings ajustes) {
     switch (ajustes.name) {
+      case carga:
+        return _ruta(const PantallaCarga(), ajustes);
+
       case login:
         return _ruta(const PantallaLogin(), ajustes);
 

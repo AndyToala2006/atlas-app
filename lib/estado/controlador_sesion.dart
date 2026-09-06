@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../modelos/respuesta_api.dart';
 import '../modelos/usuario.dart';
+import '../servicios/almacen_sesion.dart';
 import '../servicios/atlas_api.dart';
 
 /// Situación de la sesión en un momento dado.
 enum EstadoSesion {
+  /// Arranque: se está leyendo el token guardado en el almacén cifrado.
+  comprobando,
+
   /// Nadie ha iniciado sesión: solo se puede ver login, registro y diagnóstico.
   anonimo,
 
@@ -24,20 +30,24 @@ enum EstadoSesion {
 /// Por eso el usuario autenticado no se pierde al cambiar de pantalla: el
 /// estado no vive dentro de ningún widget, sino fuera de todos ellos.
 ///
-/// La sesión se mantiene en memoria durante la ejecución de la aplicación. No
-/// se escribe en disco de forma deliberada: un JWT guardado en el dispositivo
-/// exige almacenamiento cifrado y una política de expiración, que es trabajo
-/// de una entrega posterior.
+/// El JWT se guarda en el almacén cifrado del sistema ([AlmacenSesion]:
+/// Keystore en Android, Keychain en iOS), nunca en almacenamiento en claro.
+/// Así la sesión sobrevive al cierre de la aplicación sin dejar el token
+/// legible en el dispositivo.
 class ControladorSesion extends ChangeNotifier {
-  ControladorSesion({required AtlasApi api}) : _api = api;
+  ControladorSesion({required AtlasApi api, required AlmacenSesion almacen})
+      : _api = api,
+        _almacen = almacen;
 
   final AtlasApi _api;
+  final AlmacenSesion _almacen;
 
-  EstadoSesion _estado = EstadoSesion.anonimo;
+  EstadoSesion _estado = EstadoSesion.comprobando;
   Usuario? _usuario;
   String? _token;
   String? _error;
   DateTime? _iniciadaEn;
+  bool _sesionRestaurada = false;
 
   EstadoSesion get estado => _estado;
   Usuario? get usuario => _usuario;
@@ -46,12 +56,45 @@ class ControladorSesion extends ChangeNotifier {
 
   bool get haySesion => _estado == EstadoSesion.autenticado && _usuario != null;
   bool get ocupado => _estado == EstadoSesion.autenticando;
+  bool get comprobando => _estado == EstadoSesion.comprobando;
+
+  /// `true` cuando la sesión actual se recuperó del almacén cifrado en lugar
+  /// de haberse abierto con el formulario. Se usa solo para informarlo en el
+  /// perfil.
+  bool get sesionRestaurada => _sesionRestaurada;
 
   /// Vista recortada del JWT, para mostrarlo en el perfil sin exponerlo entero.
   String? get tokenAbreviado {
     final token = _token;
     if (token == null) return null;
     return token.length <= 28 ? token : '${token.substring(0, 28)}…';
+  }
+
+  /// Se llama una vez al arrancar: si hay un token guardado, lo valida contra
+  /// `GET /auth/me` y reabre la sesión. Un token caducado se descarta en
+  /// silencio y la aplicación queda en el login, como si nunca hubiera estado.
+  Future<void> restaurar() async {
+    final guardado = await _almacen.leerToken();
+    if (guardado == null || guardado.isEmpty) {
+      _estado = EstadoSesion.anonimo;
+      notifyListeners();
+      return;
+    }
+
+    _api.token = guardado;
+    try {
+      final perfil = await _api.perfil();
+      _token = guardado;
+      _usuario = perfil.datos;
+      _iniciadaEn = DateTime.now();
+      _sesionRestaurada = true;
+      _estado = EstadoSesion.autenticado;
+    } on ErrorApi {
+      await _almacen.borrarToken();
+      _api.token = null;
+      _estado = EstadoSesion.anonimo;
+    }
+    notifyListeners();
   }
 
   /// `POST /auth/login` seguido de `GET /auth/me`.
@@ -84,17 +127,20 @@ class ControladorSesion extends ChangeNotifier {
     );
   }
 
-  /// Cierra la sesión: borra el token del cliente HTTP y la identidad local.
+  /// Cierra la sesión: borra el token del cliente HTTP, del almacén cifrado y
+  /// de la memoria.
   ///
   /// A partir de aquí `haySesion` es `false`, así que la guardia de rutas
   /// vuelve a bloquear las pantallas protegidas y la API deja de enviar la
   /// cabecera `Authorization`.
-  void cerrarSesion() {
+  Future<void> cerrarSesion() async {
+    await _almacen.borrarToken();
     _api.token = null;
     _token = null;
     _usuario = null;
     _error = null;
     _iniciadaEn = null;
+    _sesionRestaurada = false;
     _estado = EstadoSesion.anonimo;
     notifyListeners();
   }
@@ -102,7 +148,13 @@ class ControladorSesion extends ChangeNotifier {
   /// Termina la sesión porque el backend rechazó el token (401 en una
   /// pantalla protegida): el token expiró o dejó de ser válido.
   void expirar() {
-    cerrarSesion();
+    unawaited(_almacen.borrarToken());
+    _api.token = null;
+    _token = null;
+    _usuario = null;
+    _iniciadaEn = null;
+    _sesionRestaurada = false;
+    _estado = EstadoSesion.anonimo;
     _error = 'Tu sesión expiró. Vuelve a iniciar sesión para continuar.';
     notifyListeners();
   }
@@ -128,7 +180,10 @@ class ControladorSesion extends ChangeNotifier {
       final perfil = await _api.perfil();
       _usuario = perfil.datos;
       _iniciadaEn = DateTime.now();
+      _sesionRestaurada = false;
       _estado = EstadoSesion.autenticado;
+
+      await _almacen.guardarToken(token.datos);
       notifyListeners();
       return true;
     } on ErrorApi catch (e) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../estado/ambito_atlas.dart';
 import '../modelos/respuesta_api.dart';
+import '../tema/tema_atlas.dart';
 import '../widgets/bloque_resultado.dart';
 
 /// Diagnóstico de conectividad (Taller Semana 9).
@@ -56,51 +57,95 @@ class _PantallaConexionState extends State<PantallaConexion> {
 
   @override
   Widget build(BuildContext context) {
+    final tema = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Diagnóstico de conexión')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
+          Text(
+            'Comprueba que el teléfono alcanza el backend antes de iniciar '
+            'sesión. Este endpoint es público: no requiere token.',
+            style: tema.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 20),
+
+          Text('Configuración del entorno', style: tema.textTheme.titleMedium),
+          const SizedBox(height: 12),
           Card(
-            margin: EdgeInsets.zero,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Configuración del entorno',
-                      style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 12),
-                  _Fila('API_BASE_URL', AppConfig.apiBaseUrl),
-                  _Fila('APP_ENV', AppConfig.entorno),
-                  _Fila('Timeout', '${AppConfig.timeout.inSeconds} s'),
-                  if (AppConfig.usaTraficoSinCifrar) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      'Tráfico sin cifrar (http) autorizado únicamente para el '
-                      'host de desarrollo declarado en network_security_config.xml. '
-                      'Esta excepción debe eliminarse antes de cualquier '
-                      'distribución de la aplicación.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
+                  _Fila(
+                    icono: Icons.link,
+                    clave: 'API_BASE_URL',
+                    valor: AppConfig.apiBaseUrl,
+                  ),
+                  _Fila(
+                    icono: Icons.tune,
+                    clave: 'APP_ENV',
+                    valor: AppConfig.entorno,
+                  ),
+                  _Fila(
+                    icono: Icons.timer_outlined,
+                    clave: 'Timeout',
+                    valor: '${AppConfig.timeout.inSeconds} s',
+                    ultima: true,
+                  ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 16),
+
+          if (AppConfig.usaTraficoSinCifrar) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: TemaAtlas.realce.withValues(alpha: 0.09),
+                borderRadius: TemaAtlas.bordeMedio,
+                border: Border.all(
+                  color: TemaAtlas.realce.withValues(alpha: 0.32),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      size: 18, color: TemaAtlas.realce),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Tráfico sin cifrar (http) autorizado únicamente para el '
+                      'host de desarrollo declarado en network_security_config.xml. '
+                      'Esta excepción debe eliminarse antes de cualquier '
+                      'distribución de la aplicación.',
+                      style: tema.textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+
           FilledButton.icon(
             onPressed: _cargando ? null : _probar,
             icon: _cargando
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.network_check),
             label: const Text('Probar conexión con la API'),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           ?_resultado,
         ],
       ),
@@ -109,25 +154,48 @@ class _PantallaConexionState extends State<PantallaConexion> {
 }
 
 class _Fila extends StatelessWidget {
-  const _Fila(this.clave, this.valor);
+  const _Fila({
+    required this.icono,
+    required this.clave,
+    required this.valor,
+    this.ultima = false,
+  });
 
+  final IconData icono;
   final String clave;
   final String valor;
+  final bool ultima;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+    final tema = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      decoration: ultima
+          ? null
+          : BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: tema.colorScheme.outlineVariant),
+              ),
+            ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icono, size: 18, color: tema.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
           SizedBox(
-            width: 110,
-            child: Text(clave,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            width: 104,
+            child: Text(clave, style: tema.textTheme.bodySmall),
           ),
           Expanded(
-              child: SelectableText(valor, style: const TextStyle(fontSize: 13))),
+            child: SelectableText(
+              valor,
+              style: tema.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
         ],
       ),
     );

@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../estado/ambito_atlas.dart';
 import '../rutas/rutas.dart';
+import '../tema/tema_atlas.dart';
+import '../widgets/marca_atlas.dart';
 
 /// Perfil del usuario en sesión y cierre de sesión.
 ///
-/// Todo lo que se ve aquí sale del [ControladorSesion]: esta pantalla no
+/// Todo lo que se ve aquí sale del controlador de sesión: esta pantalla no
 /// vuelve a llamar a `GET /auth/me`, porque el perfil se cargó una sola vez al
 /// autenticar y sigue en el estado compartido.
 class PantallaPerfil extends StatelessWidget {
@@ -16,11 +18,13 @@ class PantallaPerfil extends StatelessWidget {
     final confirmado = await showDialog<bool>(
       context: context,
       builder: (dialogo) => AlertDialog(
+        icon: Icon(Icons.logout, color: Theme.of(dialogo).colorScheme.error),
         title: const Text('Cerrar sesión'),
         content: const Text(
-          'Se borrará el token de este dispositivo y tendrás que volver a '
-          'autenticarte para entrar a tus ideas y a tu panel.',
+          'Se borrará el token guardado en este dispositivo y tendrás que '
+          'volver a autenticarte para entrar a tus ideas y a tu panel.',
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogo).pop(false),
@@ -28,6 +32,10 @@ class PantallaPerfil extends StatelessWidget {
           ),
           FilledButton(
             key: const Key('boton-confirmar-salir'),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(dialogo).colorScheme.error,
+              minimumSize: const Size(0, 46),
+            ),
             onPressed: () => Navigator.of(dialogo).pop(true),
             child: const Text('Cerrar sesión'),
           ),
@@ -43,12 +51,13 @@ class PantallaPerfil extends StatelessWidget {
     Navigator.of(context).pushNamedAndRemoveUntil(Rutas.login, (_) => false);
     ambito.ideas.limpiar();
     ambito.panel.limpiar();
-    ambito.sesion.cerrarSesion();
+    await ambito.sesion.cerrarSesion();
   }
 
   @override
   Widget build(BuildContext context) {
     final sesion = AmbitoAtlas.sesionDe(context);
+    final tema = Theme.of(context);
 
     return ListenableBuilder(
       listenable: sesion,
@@ -57,65 +66,141 @@ class PantallaPerfil extends StatelessWidget {
         if (usuario == null) return const SizedBox.shrink();
 
         return ListView(
-          padding: const EdgeInsets.all(16),
+          key: const Key('lista-perfil'),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
-            Card(
-              margin: EdgeInsets.zero,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    CircleAvatar(radius: 28, child: Text(usuario.iniciales)),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            usuario.nombre,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          SelectableText(usuario.email),
-                        ],
+            // Cabecera de identidad sobre el degradado de marca.
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: TemaAtlas.degradado,
+                borderRadius: TemaAtlas.bordeGrande,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        width: 2,
                       ),
                     ),
-                  ],
-                ),
+                    child: AvatarUsuario(iniciales: usuario.iniciales, radio: 28),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          usuario.nombre,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          usuario.email,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
 
+            Text('Sesión', style: tema.textTheme.titleMedium),
+            const SizedBox(height: 12),
             Card(
-              margin: EdgeInsets.zero,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Sesión',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 12),
-                    _Fila('Usuario id', '${usuario.id}'),
-                    _Fila('Iniciada', _formatearHora(sesion.iniciadaEn)),
-                    _Fila('Token JWT', sesion.tokenAbreviado ?? '—'),
-                    _Fila('API', AppConfig.apiBaseUrl),
-                    _Fila('Entorno', AppConfig.entorno),
-                    const SizedBox(height: 8),
-                    Text(
-                      'El token se guarda solo en memoria: al cerrar la '
-                      'aplicación la sesión termina.',
-                      style: Theme.of(context).textTheme.bodySmall,
+                    _Fila(
+                      icono: Icons.badge_outlined,
+                      clave: 'Usuario id',
+                      valor: '${usuario.id}',
+                    ),
+                    _Fila(
+                      icono: Icons.schedule,
+                      clave: 'Iniciada',
+                      valor: _formatearHora(sesion.iniciadaEn),
+                    ),
+                    _Fila(
+                      icono: Icons.vpn_key_outlined,
+                      clave: 'Token JWT',
+                      valor: sesion.tokenAbreviado ?? '—',
+                    ),
+                    _Fila(
+                      icono: Icons.shield_outlined,
+                      clave: 'Origen',
+                      valor: sesion.sesionRestaurada
+                          ? 'restaurada del almacén cifrado'
+                          : 'iniciada en este arranque',
+                      ultima: true,
                     ),
                   ],
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+
+            _NotaSeguridad(
+              texto: 'El token se guarda cifrado por el sistema operativo '
+                  '(Keystore en Android, Keychain en iOS). Nunca se escribe en '
+                  'almacenamiento en claro.',
+            ),
             const SizedBox(height: 24),
+
+            Text('Conexión', style: tema.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  children: [
+                    _Fila(
+                      icono: Icons.dns_outlined,
+                      clave: 'API',
+                      valor: AppConfig.apiBaseUrl,
+                    ),
+                    _Fila(
+                      icono: Icons.tune,
+                      clave: 'Entorno',
+                      valor: AppConfig.entorno,
+                      ultima: true,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () =>
+                  Navigator.of(context).pushNamed(Rutas.diagnostico),
+              icon: const Icon(Icons.network_check),
+              label: const Text('Diagnóstico de conexión'),
+            ),
+            const SizedBox(height: 28),
 
             OutlinedButton.icon(
               key: const Key('boton-cerrar-sesion'),
               onPressed: () => _cerrarSesion(context),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: tema.colorScheme.error,
+                side: BorderSide(
+                  color: tema.colorScheme.error.withValues(alpha: 0.45),
+                ),
+              ),
               icon: const Icon(Icons.logout),
               label: const Text('Cerrar sesión'),
             ),
@@ -133,28 +218,76 @@ class PantallaPerfil extends StatelessWidget {
 }
 
 class _Fila extends StatelessWidget {
-  const _Fila(this.clave, this.valor);
+  const _Fila({
+    required this.icono,
+    required this.clave,
+    required this.valor,
+    this.ultima = false,
+  });
 
+  final IconData icono;
   final String clave;
   final String valor;
+  final bool ultima;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+    final tema = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      decoration: ultima
+          ? null
+          : BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: tema.colorScheme.outlineVariant),
+              ),
+            ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icono, size: 18, color: tema.colorScheme.onSurfaceVariant),
+          const SizedBox(width: 12),
           SizedBox(
-            width: 100,
-            child: Text(
-              clave,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-            ),
+            width: 88,
+            child: Text(clave, style: tema.textTheme.bodySmall),
           ),
           Expanded(
-            child: SelectableText(valor, style: const TextStyle(fontSize: 13)),
+            child: SelectableText(
+              valor,
+              style: tema.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotaSeguridad extends StatelessWidget {
+  const _NotaSeguridad({required this.texto});
+
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) {
+    final tema = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: TemaAtlas.acento.withValues(alpha: 0.07),
+        borderRadius: TemaAtlas.bordeMedio,
+        border: Border.all(color: TemaAtlas.acento.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lock_outline, size: 17, color: TemaAtlas.acento),
+          const SizedBox(width: 10),
+          Expanded(child: Text(texto, style: tema.textTheme.bodySmall)),
         ],
       ),
     );

@@ -14,7 +14,8 @@ Duración objetivo: **4 minutos** (el rango permitido es 3 a 5)
 - [ ] **Datos cargados.** Si la base está vacía: `docker compose exec api python seed.py`.
 - [ ] **Firewall abierto.** PowerShell como administrador: `powershell -ExecutionPolicy Bypass -File .\herramientas\abrir-firewall.ps1`.
 - [ ] **Teléfono conectado** por USB, depuración activada, misma red Wi-Fi. Verifica con `adb devices`.
-- [ ] **Pruebas en verde.** Ejecuta `flutter test` una vez antes de grabar: las 14 deben pasar.
+- [ ] **Pruebas en verde.** Ejecuta `flutter test` una vez antes de grabar: las 17 deben pasar.
+- [ ] **Sesión anterior cerrada.** La sesión ahora se guarda cifrada y sobrevive al cierre de la aplicación. Si quedaste dentro de una grabación anterior, **cierra sesión desde Perfil** antes de empezar; si no, el video arrancará en el área privada en vez de en el login.
 - [ ] **Cuenta de demostración lista.** Vas a lanzar con las credenciales inyectadas:
       `.\run.ps1 -DemoEmail demo@atlas.app -DemoPassword <la-del-seed>`
 - [ ] **Correo de registro nuevo.** Decide de antemano el correo que vas a usar al registrarte (por ejemplo `andy.demo@atlas.app`); si ya existe, el backend devuelve 409 y perderás el momento del alta correcta.
@@ -41,9 +42,9 @@ Duración objetivo: **4 minutos** (el rango permitido es 3 a 5)
 
 > "Arranco con el lanzador del proyecto. Detecta la IP del computador, sincroniza la política de seguridad de red de Android y compila sobre el teléfono físico. La URL de la API y las credenciales de demostración se inyectan como variables de entorno: **no están escritas en el repositorio**."
 
-**En pantalla:** el teléfono abre directamente en el **formulario de inicio de sesión**.
+**En pantalla:** el teléfono muestra un instante la pantalla de arranque y cae en el **formulario de inicio de sesión**.
 
-> "Fíjense en el primer detalle: la aplicación no arranca en el contenido, arranca en el login. La ruta inicial es `/login`."
+> "Fíjense en el primer detalle: la aplicación no arranca en el contenido. Arranca comprobando si hay una sesión guardada en el almacén cifrado del teléfono; como no la hay, va al login."
 
 ---
 
@@ -97,7 +98,7 @@ Pulsa *Crear una cuenta*.
 
 ## Bloque 5 — Autenticación y pantalla protegida (30 s)
 
-Cierra sesión desde *Perfil* si quedaste dentro, y vuelve al login. Pulsa *Rellenar con la cuenta de demostración* y entra.
+Cierra sesión desde *Perfil* si quedaste dentro, y vuelve al login. Pulsa *Usar cuenta de demostración* y entra.
 
 > "Ahora con la cuenta que trae datos. La aplicación hace dos llamadas: `POST /auth/login` para obtener el JWT, y `GET /auth/me` para el perfil.
 >
@@ -145,13 +146,23 @@ Muestra el aviso *"Tienes un borrador sin guardar"* y vuelve a entrar.
 
 ---
 
+## Bloque 6.5 — La sesión sobrevive al cierre (20 s) *[opcional si vas justo]*
+
+Cierra la aplicación por completo (deslízala fuera de las recientes) y vuelve a abrirla desde el icono.
+
+> "Y esto va un paso más allá de lo que pide el taller. Cierro la aplicación del todo… y al volver a abrirla entro directo, sin volver a escribir la contraseña.
+>
+> El token JWT se guarda en el almacén cifrado del sistema: `EncryptedSharedPreferences` respaldado por el Keystore de Android, o el Keychain en iOS. **Nunca en almacenamiento en claro.** Al arrancar se lee, se valida contra `GET /auth/me`, y si el backend lo rechaza se borra y aparece el login. En el perfil se ve el origen de la sesión: 'restaurada del almacén cifrado'."
+
+---
+
 ## Bloque 7 — Cierre de sesión y bloqueo posterior (40 s)
 
 **7.1 Cerrar sesión.** *Perfil* → *Cerrar sesión* → confirmar.
 
-> "Cierro sesión. Se borra el token del cliente HTTP y se limpian los datos cargados, para que las ideas de un usuario no queden visibles para el siguiente que entre en este mismo teléfono."
+> "Cierro sesión. Se borra el token del cliente HTTP **y del almacén cifrado**, y se limpian los datos cargados, para que las ideas de un usuario no queden visibles para el siguiente que entre en este mismo teléfono."
 
-**7.2 Intento de acceso.** En el login, pulsa *Intentar entrar sin iniciar sesión*.
+**7.2 Intento de acceso.** En el login, pulsa *Probar acceso directo*.
 
 > "Y esta es la prueba de la protección. Este enlace intenta abrir el área privada a propósito.
 >
@@ -167,9 +178,11 @@ Muestra el aviso *"Tienes un borrador sin guardar"* y vuelve a entrar.
 
 > "Cierro con la organización, que el taller pide de forma expresa.
 >
-> `modelos` son los datos. `servicios` es el cliente HTTP, que solo sabe hablar con la API. `estado` son los tres controladores. `rutas` es la tabla de navegación con su guardia. `pantallas` son las páginas. `widgets` son los componentes que se repiten. Y `utiles/validadores.dart` concentra las reglas de los formularios, fuera de las pantallas, para reutilizarlas y poder probarlas.
+> `modelos` son los datos. `servicios` tiene el cliente HTTP —la única puerta a la API— y el almacén cifrado del token. `estado` son los tres controladores. `rutas` es la tabla de navegación con su guardia. `pantallas` son las páginas. `widgets` son los componentes que se repiten. `utiles/validadores.dart` concentra las reglas de los formularios. Y `tema/tema_atlas.dart` es el sistema de diseño: la paleta, la tipografía y el estilo de cada componente en un solo archivo, con tema claro y oscuro.
 >
-> Todo el flujo está cubierto por catorce pruebas automatizadas contra un backend simulado, que corren con `flutter test` sin necesidad de levantar la API.
+> Esa separación no es mía por gusto: es la misma que sigue el proyecto de referencia de la asignatura —una puerta HTTP única, el token en almacenamiento seguro y nunca en claro, el estado en su propia capa, y las rutas protegidas separadas de las páginas—, traducida de Ionic a Flutter.
+>
+> Todo el flujo está cubierto por diecisiete pruebas automatizadas contra un backend simulado, que corren con `flutter test` sin necesidad de levantar la API.
 >
 > El repositorio y el detalle técnico de estas decisiones están en la sección 7 del README. Gracias."
 

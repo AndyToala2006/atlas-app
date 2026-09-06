@@ -35,6 +35,12 @@ class AppConfig {
   /// mismo modo que la URL base. Si no se pasan, el botón no aparece y el
   /// formulario se llena a mano.
   ///
+  /// ADVERTENCIA: un valor pasado por `--dart-define` queda compilado dentro
+  /// del binario y es extraíble de la APK. Sirve para mantenerlo FUERA del
+  /// repositorio, no para guardar secretos. Aquí solo viaja la contraseña de
+  /// una cuenta de demostración desechable; una credencial real jamás debe
+  /// inyectarse por esta vía.
+  ///
   ///   flutter run --dart-define=DEMO_EMAIL=... --dart-define=DEMO_PASSWORD=...
   static const String demoEmail = String.fromEnvironment('DEMO_EMAIL');
   static const String demoPassword = String.fromEnvironment('DEMO_PASSWORD');
@@ -50,4 +56,30 @@ class AppConfig {
   /// `true` cuando la URL base viaja sin cifrar (http). Se usa para advertir en
   /// pantalla que esa configuración solo es válida en desarrollo.
   static bool get usaTraficoSinCifrar => apiBaseUrl.startsWith('http://');
+
+  /// Comprueba la configuración al arrancar y devuelve el motivo del fallo, o
+  /// `null` si todo es correcto.
+  ///
+  /// Una URL base mal formada no produce un error entendible: produce fallos
+  /// de red confusos en cada pantalla. Es preferible detectarlo una sola vez,
+  /// al inicio, y decirlo con claridad.
+  static String? validar() {
+    if (apiBaseUrl.trim().isEmpty) {
+      return 'API_BASE_URL está vacía. Lanza la aplicación con '
+          '--dart-define=API_BASE_URL=http://IP:8000';
+    }
+    final uri = Uri.tryParse(apiBaseUrl);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return 'API_BASE_URL no es una URL válida: "$apiBaseUrl". '
+          'Debe incluir el esquema y el host, por ejemplo http://192.168.1.20:8000';
+    }
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      return 'API_BASE_URL usa el esquema "${uri.scheme}", que no es admitido. '
+          'Usa http en desarrollo o https en producción.';
+    }
+    if (apiBaseUrl.endsWith('/')) {
+      return 'API_BASE_URL no debe terminar en "/": las rutas ya lo incluyen.';
+    }
+    return null;
+  }
 }

@@ -38,6 +38,10 @@ dependencies:
   # Cliente HTTP para consumir la API de Atlas (atlas-backend).
   http: ^1.5.0
 
+  # Almacen cifrado del sistema operativo (Keystore en Android, Keychain en
+  # iOS) para guardar el JWT de la sesion. No se usa almacenamiento en claro.
+  flutter_secure_storage: ^9.2.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
