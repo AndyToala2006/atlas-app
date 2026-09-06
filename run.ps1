@@ -6,11 +6,19 @@
 #   .\run.ps1 -Destino web           -> navegador (localhost)
 #   .\run.ps1 -Ip 192.168.1.20       -> fuerza una IP concreta
 
+#
+# Opcionalmente inyecta las credenciales de la cuenta de demostracion, que
+# habilitan el boton "Rellenar con la cuenta de demostracion" del login. No se
+# guardan en el repositorio: se pasan al lanzar.
+#
+#   .\run.ps1 -DemoEmail demo@atlas.app -DemoPassword ****
 param(
     [ValidateSet('dispositivo', 'emulador', 'web')]
     [string]$Destino = 'dispositivo',
     [string]$Ip,
-    [int]$Puerto = 8000
+    [int]$Puerto = 8000,
+    [string]$DemoEmail,
+    [string]$DemoPassword
 )
 
 if (-not $Ip) {
@@ -40,6 +48,15 @@ if ($Destino -eq 'dispositivo') {
     # La politica de seguridad de red debe autorizar la IP actual, o Android
     # bloquea el trafico sin cifrar aunque la URL base sea la correcta.
     & (Join-Path $PSScriptRoot 'herramientas\configurar-host.ps1') -Ip $Ip
+    Write-Host ""
+}
+
+if ($DemoEmail -and $DemoPassword) {
+    $extra += @(
+        "--dart-define=DEMO_EMAIL=$DemoEmail",
+        "--dart-define=DEMO_PASSWORD=$DemoPassword"
+    )
+    Write-Host "Cuenta demo  : $DemoEmail (contrasena inyectada, no versionada)"
     Write-Host ""
 }
 

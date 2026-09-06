@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../api/atlas_api.dart';
+import '../modelos/respuesta_api.dart';
 
 /// Tarjeta que muestra el resultado de una llamada a la API: código de estado,
 /// tiempo medido en el cliente y las cabeceras de diagnóstico del backend.

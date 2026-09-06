@@ -6,7 +6,8 @@ Cliente móvil del proyecto integrador **Atlas**, desarrollado con Flutter y con
 |---|---|
 | **Asignatura** | Aplicaciones Móviles (UEA-L-UFPTI-008) |
 | **Código de aula** | 2626-UEA-L-UFPTI-008-C |
-| **Taller** | Semana 9 — Configuración, verificación y conexión del entorno de desarrollo móvil |
+| **Taller vigente** | Semana 10 — Autenticación, navegación, estado y formularios (§7) |
+| **Taller anterior** | Semana 9 — Configuración, verificación y conexión del entorno (§1–§6) |
 | **Modalidad** | Individual |
 | **Autor** | Andy Toala |
 
@@ -342,13 +343,16 @@ Con la aplicación corriendo, en la terminal de `flutter run`:
 
 ## 6. Consumo de la API propia
 
-La aplicación consume el backend construido en la unidad anterior. Tres pantallas cubren el recorrido completo:
+La aplicación consume el backend construido en la unidad anterior. Estas son las llamadas que realiza:
 
 | Pantalla | Endpoint | Qué demuestra |
 |---|---|---|
-| **Conexión** | `GET /health` | Primera solicitud exitosa. Endpoint público, sin autenticación. |
-| **Sesión** | `POST /auth/login` → `GET /auth/me` | Autenticación con JWT. El token se guarda y viaja en `Authorization: Bearer`. |
+| **Diagnóstico** | `GET /health` | Primera solicitud exitosa. Endpoint público, sin autenticación. |
+| **Login** | `POST /auth/login` → `GET /auth/me` | Autenticación con JWT. El token se guarda y viaja en `Authorization: Bearer`. |
+| **Registro** | `POST /auth/register` → `GET /auth/me` | Alta de cuenta con sesión iniciada de inmediato. |
 | **Ideas** | `GET /ideas`, `POST /ideas` | Lectura y escritura de datos reales en PostgreSQL con el usuario autenticado. |
+| **Detalle de idea** | `GET /ideas/{id}` | Relectura puntual de un registro, también protegida por token. |
+| **Panel** | `GET /dashboard/metricas` | Reporte agregado servido con caché-aside en Redis. |
 
 Cada respuesta se muestra en pantalla junto con los **datos de diagnóstico** que el backend devuelve en cabeceras, lo que evidencia que la información proviene realmente de la API y no de datos simulados en el cliente:
 
@@ -358,25 +362,159 @@ Cada respuesta se muestra en pantalla junto con los **datos de diagnóstico** qu
 
 El interruptor *"consulta optimizada"* de la pantalla de ideas alterna el parámetro `optimized` de `GET /ideas`, que en el backend cambia entre *eager loading* y la versión ingenua con N+1. La diferencia se ve directamente en el teléfono a través de `X-Query-Count`.
 
-**Credenciales de demostración** (creadas por `seed.py` en el backend): `demo@atlas.app` / `atlas123`
+**Cuenta de demostración.** El backend la crea con `seed.py`. Sus credenciales **no se versionan aquí**: se inyectan al lanzar, igual que la URL base, y solo entonces aparece en el login el botón que rellena el formulario.
+
+```powershell
+.\run.ps1 -DemoEmail demo@atlas.app -DemoPassword <la-del-seed>
+```
+
+Sin esos valores el botón no se muestra y el formulario se llena a mano, que es el comportamiento normal de la aplicación.
 
 ---
 
-## 7. Estructura del proyecto
+## 7. Autenticación, navegación y manejo de estado
+
+*(Taller Semana 10)*
+
+### 7.1 Flujo de autenticación
+
+La aplicación **arranca en el formulario de inicio de sesión**, no en el contenido. El recorrido es:
+
+```
+/login ──POST /auth/login──> JWT ──GET /auth/me──> /inicio (área privada)
+   │                                                   │
+   └──> /registro ──POST /auth/register──> JWT ─────────┘
+   └──> /diagnostico (público, GET /health)
+```
+
+El backend firma un JWT que lleva la identidad del usuario en los *claims*, de modo que `GET /auth/me` la resuelve **sin consultar la base de datos**. La aplicación guarda ese token en `AtlasApi.token` y lo adjunta como `Authorization: Bearer` en cada petición protegida.
+
+El **registro está habilitado** porque el backend expone `POST /auth/register`. Crea la cuenta, su perfil de tono y devuelve el token, así que el usuario entra directamente sin pasar por el login.
+
+### 7.2 Formularios y validaciones
+
+Las reglas viven en [`lib/utiles/validadores.dart`](lib/utiles/validadores.dart), fuera de las pantallas: se reutilizan entre formularios y se pueden probar sin levantar la interfaz. Cada una devuelve `null` si el valor es aceptable y el mensaje de error si no lo es, que es el contrato de `TextFormField.validator`.
+
+| Campo | Reglas | Dónde |
+|---|---|---|
+| Correo | Obligatorio · formato `nombre@dominio.ext` · máx. 160 | Login, Registro |
+| Contraseña | Obligatoria · 6–72 caracteres | Login |
+| Contraseña nueva | Lo anterior · al menos una letra y un número | Registro |
+| Confirmación | Obligatoria · debe coincidir | Registro |
+| Nombre | Obligatorio · 2–120 caracteres | Registro |
+| Título | Obligatorio · 2–160 caracteres | Nueva idea |
+| Contenido | Obligatorio · mínimo 10 caracteres | Nueva idea |
+| Etiquetas | Opcionales · separadas por coma · máx. 5 · 40 caracteres cada una | Nueva idea |
+
+Los límites replican los del esquema del servidor (`app/schemas.py`) para que el teléfono rechace lo mismo que rechazaría el backend, sin gastar una llamada de red. Hasta el primer envío no se marca nada en rojo (`AutovalidateMode.disabled`); a partir de ahí cada pulsación revalida, así el error desaparece en cuanto se corrige.
+
+Los errores que **no pertenecen a un campo** —credenciales incorrectas, correo ya registrado, backend inalcanzable— se muestran en un aviso sobre el formulario. `ErrorApi` conserva el código de estado HTTP y el controlador de sesión lo traduce: 401 → *"Correo o contraseña incorrectos"*, 409 → *"Ese correo ya tiene una cuenta"*, 422 → los mensajes de validación de Pydantic.
+
+### 7.3 Navegación
+
+Navegación por **rutas con nombre**, todas declaradas en [`lib/rutas/rutas.dart`](lib/rutas/rutas.dart) y resueltas por un único `onGenerateRoute`:
+
+| Ruta | Pantalla | Acceso |
+|---|---|---|
+| `/login` | Inicio de sesión | Pública (ruta inicial) |
+| `/registro` | Crear cuenta | Pública |
+| `/diagnostico` | Prueba de conectividad | Pública |
+| `/inicio` | Contenedor con Ideas · Panel · Perfil | **Protegida** |
+| `/ideas/nueva` | Formulario de nueva idea | **Protegida** |
+| `/ideas/detalle` | Detalle de una idea (recibe la idea como argumento) | **Protegida** |
+
+Dentro de `/inicio`, un `NavigationBar` alterna entre las tres secciones sobre un `IndexedStack`, de modo que cambiar de pestaña no destruye la pantalla. Al autenticarse se usa `pushNamedAndRemoveUntil`, así que desde el área privada el botón *atrás* del sistema no devuelve al formulario de login.
+
+### 7.4 Protección de vistas
+
+Cada ruta privada se construye envuelta en [`GuardiaSesion`](lib/rutas/guardia_sesion.dart). No es una comprobación de una sola vez al abrir la pantalla: el widget **escucha** al controlador de sesión, de modo que si la sesión termina —por cierre voluntario o porque la API devolvió 401— la pantalla protegida se reemplaza en el acto por el aviso de acceso restringido, sin dejar datos a la vista.
+
+Como la guardia está en la tabla de rutas y no en cada pantalla, no hay forma de esquivarla: da igual que la navegación venga de un botón, de un `pushNamed` suelto o de un error. El login incluye a propósito el enlace *"Intentar entrar sin iniciar sesión"* para poder comprobarlo en la demostración.
+
+La protección es doble: aunque alguien alcanzara la pantalla, la API rechazaría la petición con 401 porque la cabecera `Authorization` viajaría vacía.
+
+### 7.5 Manejo de estado
+
+El estado se resuelve con las herramientas del propio Flutter, **sin paquetes de terceros**: `ChangeNotifier` para guardar y notificar, `InheritedWidget` para repartir y `ListenableBuilder` para redibujar solo lo que depende del dato. La aplicación tiene tres piezas de estado bien delimitadas y una dependencia externa no aportaría nada que este esquema no cubra.
+
+```
+AtlasApp                crea el cliente HTTP y los tres controladores
+  AmbitoAtlas           los reparte a toda la aplicación (InheritedWidget)
+    MaterialApp         navegación por rutas con nombre
+      GuardiaSesion     envuelve cada ruta privada
+```
+
+| Controlador | Qué guarda |
+|---|---|
+| [`ControladorSesion`](lib/estado/controlador_sesion.dart) | Estado de la sesión, usuario autenticado, token y último error |
+| [`ControladorIdeas`](lib/estado/controlador_ideas.dart) | Lista de ideas, cabeceras de la última respuesta y el borrador sin guardar |
+| [`ControladorPanel`](lib/estado/controlador_panel.dart) | Último reporte de métricas recibido |
+
+Lo decisivo es **dónde** viven: por encima del `Navigator`. Las pantallas se crean y se destruyen al navegar; los controladores no. Eso es lo que hace que, al cambiar de pestaña o volver del detalle de una idea:
+
+- el nombre del usuario siga en la barra superior sin volver a pedir `GET /auth/me`;
+- la lista de ideas ya esté cargada sin repetir `GET /ideas`;
+- el **borrador a medio escribir** de una idea nueva siga intacto —se copia al controlador en cada pulsación, precisamente para poder demostrarlo.
+
+### 7.6 Cierre de sesión
+
+Desde *Perfil*, con confirmación previa. En orden: se desmonta el área privada con `pushNamedAndRemoveUntil('/login')`, se limpian los controladores de ideas y de panel, y se borra el token del cliente HTTP. Ese orden evita que una pantalla protegida llegue a redibujarse sin sesión.
+
+Limpiar los datos no es un detalle estético: impide que las ideas de un usuario queden visibles para el siguiente que inicie sesión en el mismo teléfono. El mismo camino se recorre automáticamente cuando la API responde 401 a una pantalla protegida, es decir, cuando el token expira.
+
+**La sesión no se guarda en disco, y es deliberado.** Persistir un JWT en el dispositivo exige almacenamiento cifrado y una política de renovación; mientras eso no esté resuelto, cerrar la aplicación cierra la sesión.
+
+### 7.7 Pruebas del flujo
+
+[`test/widget_test.dart`](test/widget_test.dart) recorre el flujo completo contra un backend simulado con `MockClient`, sin necesidad de tener la API levantada:
+
+```powershell
+flutter test
+```
+
+Cubre las 14 comprobaciones: arranque en el login, campos obligatorios, formato de correo y largo de contraseña, credenciales incorrectas, autenticación correcta, permanencia del estado al navegar entre las tres pantallas, identidad conservada en el detalle, borrador que sobrevive al cambio de pantalla, validaciones del registro, alta correcta, bloqueo de ruta privada sin sesión, cierre de sesión y bloqueo posterior, y acceso público al diagnóstico.
+
+---
+
+## 8. Estructura del proyecto
 
 ```
 atlas-app/
 ├── lib/
-│   ├── main.dart                       Punto de entrada y shell de navegación
+│   ├── main.dart                       Punto de entrada: crea el estado y monta las rutas
 │   ├── config/
 │   │   └── app_config.dart             Variables de entorno (--dart-define)
-│   ├── api/
-│   │   └── atlas_api.dart              Cliente HTTP, modelos y manejo de errores
-│   ├── pantallas/
-│   │   ├── pantalla_conexion.dart      Diagnóstico y prueba de conectividad
-│   │   ├── pantalla_sesion.dart        Login con JWT y validación de formulario
-│   │   └── pantalla_ideas.dart         Listado y creación de ideas
-│   └── widgets/
+│   ├── modelos/                        Datos que viajan entre la API y la interfaz
+│   │   ├── usuario.dart                Usuario autenticado
+│   │   ├── idea.dart                   Idea capturada
+│   │   ├── metricas_panel.dart         Reporte del panel
+│   │   └── respuesta_api.dart          RespuestaApi<T> y ErrorApi
+│   ├── servicios/
+│   │   └── atlas_api.dart              Cliente HTTP: rutas, token y errores de red
+│   ├── estado/                         Manejo de estado (ChangeNotifier)
+│   │   ├── controlador_sesion.dart     Sesión, usuario y token
+│   │   ├── controlador_ideas.dart      Lista de ideas y borrador
+│   │   ├── controlador_panel.dart      Métricas del panel
+│   │   └── ambito_atlas.dart           Reparte los controladores (InheritedWidget)
+│   ├── rutas/
+│   │   ├── rutas.dart                  Tabla de rutas con nombre (onGenerateRoute)
+│   │   └── guardia_sesion.dart         Bloquea las rutas privadas sin sesión
+│   ├── pantallas/                      Páginas de la aplicación
+│   │   ├── pantalla_login.dart         Inicio de sesión (pública)
+│   │   ├── pantalla_registro.dart      Alta de cuenta (pública)
+│   │   ├── pantalla_conexion.dart      Diagnóstico de conectividad (pública)
+│   │   ├── pantalla_inicio.dart        Contenedor privado con barra inferior
+│   │   ├── pantalla_ideas.dart         Listado de ideas
+│   │   ├── pantalla_nueva_idea.dart    Formulario de creación
+│   │   ├── pantalla_detalle_idea.dart  Detalle de una idea
+│   │   ├── pantalla_panel.dart         Panel de métricas
+│   │   └── pantalla_perfil.dart        Perfil y cierre de sesión
+│   ├── utiles/
+│   │   └── validadores.dart            Reglas de validación reutilizables
+│   └── widgets/                        Componentes compartidos
+│       ├── campo_texto.dart            Campo de formulario validado
+│       ├── aviso_error.dart            Aviso de error de formulario o de API
+│       ├── tarjeta_idea.dart           Fila del listado de ideas
 │       └── bloque_resultado.dart       Tarjeta de resultado con cabeceras
 ├── android/app/src/main/
 │   ├── AndroidManifest.xml             Permiso INTERNET y política de red
@@ -387,7 +525,7 @@ atlas-app/
 │   ├── configurar-host.ps1             Sincroniza la política de red con la IP actual
 │   └── abrir-firewall.ps1              Regla de firewall para el puerto 8000
 ├── test/
-│   └── widget_test.dart                Pruebas de arranque y navegación
+│   └── widget_test.dart                Flujo completo contra un backend simulado
 ├── .vscode/
 │   ├── launch.json                     Configuraciones de ejecución por destino
 │   └── extensions.json                 Extensiones recomendadas
@@ -397,7 +535,7 @@ atlas-app/
 
 ---
 
-## 8. Limitaciones conocidas del entorno
+## 9. Limitaciones conocidas del entorno
 
 Declaradas de forma explícita, como exige el taller:
 
@@ -406,11 +544,13 @@ Declaradas de forma explícita, como exige el taller:
 3. **La IP local depende de DHCP.** Si el router asigna otra dirección, hay que recompilar: `run.ps1` detecta la nueva IP y sincroniza la política de seguridad de red, pero al ser un recurso de Android el cambio no se aplica con recarga en caliente.
 4. **El teléfono y el computador deben estar en la misma red Wi-Fi.** Las redes con aislamiento de clientes (*AP isolation*), habitual en redes públicas o corporativas, impiden la conexión aunque el firewall esté abierto.
 5. **El tráfico va sin cifrar.** Aceptable solo en desarrollo y acotado a los hosts declarados (§4). Un despliegue real exige HTTPS.
-6. **El backend debe estar levantado antes de arrancar la aplicación.** Si Docker no está corriendo, la pantalla de conexión muestra el error y la sugerencia correspondiente.
+6. **El backend debe estar levantado antes de arrancar la aplicación.** Si Docker no está corriendo, la pantalla de diagnóstico muestra el error y la sugerencia correspondiente.
+7. **La sesión no sobrevive al cierre de la aplicación.** El JWT se guarda solo en memoria (§7.6). Persistirlo exige almacenamiento cifrado y una política de renovación del token, que queda para una entrega posterior.
+8. **No hay recuperación de contraseña.** El backend no expone todavía ese flujo, así que la aplicación no puede ofrecerlo.
 
 ---
 
-## 9. Relación con el proyecto integrador
+## 10. Relación con el proyecto integrador
 
 Este repositorio es el **componente móvil** de la práctica experimental de la asignatura. Se articula con los avances previos:
 
@@ -419,9 +559,10 @@ Este repositorio es el **componente móvil** de la práctica experimental de la 
 | 1–3 | Propuesta, paradigma multiplataforma, lenguaje e IDE | `andytoala-dev/06-aplicaciones-moviles` |
 | 4 | Base de datos normalizada (9 entidades, PostgreSQL) | `andytoala-dev/06-aplicaciones-moviles` |
 | 8 | Backend, APIs, autenticación y optimización | `atlas-backend` |
-| **9** | **Entorno móvil, proyecto base e integración con la API** | **`atlas-app`** (este repositorio) |
+| 9 | Entorno móvil, proyecto base e integración con la API | `atlas-app` (este repositorio) |
+| **10** | **Autenticación, navegación, manejo de estado y formularios** | **`atlas-app`** (este repositorio) |
 
-En términos de la guía de la práctica experimental, este taller cubre el arranque de las actividades 12 (desarrollo de la aplicación móvil) y 13 (conexión de la aplicación móvil con el backend).
+En términos de la guía de la práctica experimental, la Semana 9 cubrió el arranque de las actividades 12 (desarrollo de la aplicación móvil) y 13 (conexión con el backend); la Semana 10 continúa la actividad 12 con el flujo de sesión, la navegación y los formularios de la aplicación.
 
 ---
 

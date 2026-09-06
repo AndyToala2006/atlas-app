@@ -1,82 +1,88 @@
 import 'package:flutter/material.dart';
 
-import 'api/atlas_api.dart';
-import 'pantallas/pantalla_conexion.dart';
-import 'pantallas/pantalla_ideas.dart';
-import 'pantallas/pantalla_sesion.dart';
+import 'estado/ambito_atlas.dart';
+import 'estado/controlador_ideas.dart';
+import 'estado/controlador_panel.dart';
+import 'estado/controlador_sesion.dart';
+import 'rutas/rutas.dart';
+import 'servicios/atlas_api.dart';
 
 void main() => runApp(const AtlasApp());
 
 /// Atlas — cliente móvil del proyecto integrador.
 ///
-/// Taller Semana 9: proyecto base ejecutándose sobre un destino real y
-/// consumiendo la API propia (atlas-backend).
-class AtlasApp extends StatelessWidget {
-  const AtlasApp({super.key});
+/// Taller Semana 10: autenticación, navegación por rutas con nombre, manejo
+/// de estado y formularios validados.
+///
+/// El árbol queda así, de fuera hacia dentro:
+///
+///   AtlasApp            crea el cliente HTTP y los tres controladores
+///     AmbitoAtlas       los reparte a toda la aplicación (InheritedWidget)
+///       MaterialApp     navegación por rutas con nombre (`Rutas.generar`)
+///         GuardiaSesion envuelve cada ruta privada y exige sesión abierta
+///
+/// El estado vive por ENCIMA del `Navigator`. Esa es la razón de que el
+/// usuario autenticado, la lista de ideas y el borrador a medio escribir
+/// sigan intactos al cambiar de pantalla: las pantallas se crean y se
+/// destruyen, los controladores no.
+class AtlasApp extends StatefulWidget {
+  const AtlasApp({super.key, this.api});
+
+  /// Permite inyectar un cliente con `http.Client` simulado en las pruebas.
+  final AtlasApi? api;
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Atlas',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3D5AFE)),
-        useMaterial3: true,
-      ),
-      home: const PantallaPrincipal(),
-    );
+  State<AtlasApp> createState() => _AtlasAppState();
+}
+
+class _AtlasAppState extends State<AtlasApp> {
+  late final AtlasApi _api = widget.api ?? AtlasApi();
+  late final ControladorSesion _sesion = ControladorSesion(api: _api);
+  late final ControladorIdeas _ideas =
+      ControladorIdeas(api: _api, sesion: _sesion);
+  late final ControladorPanel _panel =
+      ControladorPanel(api: _api, sesion: _sesion);
+
+  @override
+  void initState() {
+    super.initState();
+    // Al terminar la sesión —por cierre voluntario o por token expirado— se
+    // descartan los datos del usuario anterior, para que no queden a la vista
+    // de quien inicie sesión después en el mismo dispositivo.
+    _sesion.addListener(_alCambiarSesion);
   }
-}
 
-/// Shell de navegación. Mantiene una única instancia de [AtlasApi] para que el
-/// token obtenido en el login siga disponible en las demás pantallas.
-class PantallaPrincipal extends StatefulWidget {
-  const PantallaPrincipal({super.key});
+  void _alCambiarSesion() {
+    if (_sesion.haySesion) return;
+    _ideas.limpiar();
+    _panel.limpiar();
+  }
 
   @override
-  State<PantallaPrincipal> createState() => _PantallaPrincipalState();
-}
-
-class _PantallaPrincipalState extends State<PantallaPrincipal> {
-  final AtlasApi _api = AtlasApi();
-  int _indice = 0;
-
-  void _alCambiarSesion() => setState(() {});
+  void dispose() {
+    _sesion.removeListener(_alCambiarSesion);
+    _panel.dispose();
+    _ideas.dispose();
+    _sesion.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final paginas = [
-      PantallaConexion(api: _api),
-      PantallaSesion(api: _api, alCambiarSesion: _alCambiarSesion),
-      PantallaIdeas(api: _api),
-    ];
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Atlas'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
-      body: paginas[_indice],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _indice,
-        onDestinationSelected: (i) => setState(() => _indice = i),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.wifi_tethering_outlined),
-            selectedIcon: Icon(Icons.wifi_tethering),
-            label: 'Conexión',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.lock_outline),
-            selectedIcon: Icon(Icons.lock),
-            label: 'Sesión',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.lightbulb_outline),
-            selectedIcon: Icon(Icons.lightbulb),
-            label: 'Ideas',
-          ),
-        ],
+    return AmbitoAtlas(
+      api: _api,
+      sesion: _sesion,
+      ideas: _ideas,
+      panel: _panel,
+      child: MaterialApp(
+        title: 'Atlas',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3D5AFE)),
+          useMaterial3: true,
+        ),
+        initialRoute: Rutas.rutaInicial,
+        onGenerateRoute: Rutas.generar,
       ),
     );
   }

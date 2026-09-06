@@ -5,76 +5,17 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
-
-/// Resultado de una llamada a la API, con los datos de diagnóstico que el
-/// backend devuelve en cabeceras (`X-Process-Time-ms`, `X-Query-Count`,
-/// `X-Cache`). Se muestran en pantalla para evidenciar que la respuesta viene
-/// realmente del backend y no de un dato quemado en la app.
-class RespuestaApi<T> {
-  RespuestaApi({
-    required this.datos,
-    required this.codigoEstado,
-    required this.milisegundosCliente,
-    required this.cabeceras,
-  });
-
-  final T datos;
-  final int codigoEstado;
-  final int milisegundosCliente;
-  final Map<String, String> cabeceras;
-
-  String? get tiempoServidorMs => cabeceras['x-process-time-ms'];
-  String? get consultasSql => cabeceras['x-query-count'];
-  String? get cache => cabeceras['x-cache'];
-}
-
-/// Error de comunicación con la API, ya traducido a un mensaje entendible.
-class ErrorApi implements Exception {
-  ErrorApi(this.mensaje, {this.sugerencia, this.codigoEstado});
-
-  final String mensaje;
-  final String? sugerencia;
-  final int? codigoEstado;
-
-  @override
-  String toString() => mensaje;
-}
-
-/// Modelo de una idea tal como la devuelve `GET /ideas`.
-class Idea {
-  Idea({
-    required this.id,
-    required this.titulo,
-    required this.estado,
-    required this.origen,
-    required this.etiquetas,
-    required this.numPublicaciones,
-    required this.creadoEn,
-  });
-
-  factory Idea.desdeJson(Map<String, dynamic> json) => Idea(
-        id: json['id'] as int,
-        titulo: json['titulo'] as String,
-        estado: json['estado'] as String,
-        origen: json['origen'] as String,
-        etiquetas: (json['etiquetas'] as List<dynamic>).cast<String>(),
-        numPublicaciones: json['num_publicaciones'] as int,
-        creadoEn: DateTime.parse(json['creado_en'] as String),
-      );
-
-  final int id;
-  final String titulo;
-  final String estado;
-  final String origen;
-  final List<String> etiquetas;
-  final int numPublicaciones;
-  final DateTime creadoEn;
-}
+import '../modelos/idea.dart';
+import '../modelos/metricas_panel.dart';
+import '../modelos/respuesta_api.dart';
+import '../modelos/usuario.dart';
 
 /// Cliente de la API de Atlas (proyecto atlas-backend, FastAPI).
 ///
-/// Concentra en un solo lugar la URL base, la cabecera Authorization y la
-/// traducción de errores de red, para que las pantallas no repitan esa lógica.
+/// Es la capa de SERVICIO: solo sabe hablar HTTP. No decide si hay sesión ni
+/// guarda al usuario; de eso se encarga `estado/controlador_sesion.dart`. Lo
+/// único que retiene es el [token] vigente, porque debe adjuntarlo en la
+/// cabecera `Authorization` de cada petición protegida.
 class AtlasApi {
   AtlasApi({http.Client? cliente, String? baseUrl})
       : _cliente = cliente ?? http.Client(),
@@ -83,44 +24,71 @@ class AtlasApi {
   final http.Client _cliente;
   final String baseUrl;
 
-  String? _token;
+  /// JWT emitido por el backend. Lo escribe el controlador de sesión al
+  /// autenticar y lo borra al cerrar sesión.
+  String? token;
 
-  bool get haySesion => _token != null;
-
-  void cerrarSesion() => _token = null;
+  bool get tieneToken => token != null;
 
   Map<String, String> get _cabeceras => {
         'Content-Type': 'application/json',
-        if (_token != null) 'Authorization': 'Bearer $_token',
+        if (token != null) 'Authorization': 'Bearer $token',
       };
 
+  // ----------------------------------------------------------------- público
+
   /// GET /health — endpoint público, es la primera prueba de conectividad.
-  Future<RespuestaApi<Map<String, dynamic>>> verificarSalud() async {
+  Future<RespuestaApi<Map<String, dynamic>>> verificarSalud() {
     return _ejecutar(
       () => _cliente.get(Uri.parse('$baseUrl/health'), headers: _cabeceras),
       (cuerpo) => jsonDecode(cuerpo) as Map<String, dynamic>,
     );
   }
 
-  /// POST /auth/login — obtiene el JWT y lo guarda en memoria.
-  Future<RespuestaApi<String>> iniciarSesion(String email, String password) async {
-    final respuesta = await _ejecutar(
+  /// POST /auth/register — crea la cuenta y devuelve el JWT del nuevo usuario.
+  Future<RespuestaApi<String>> registrar({
+    required String email,
+    required String nombre,
+    required String password,
+    required String tono,
+  }) {
+    return _ejecutar(
+      () => _cliente.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: _cabeceras,
+        body: jsonEncode({
+          'email': email,
+          'nombre': nombre,
+          'password': password,
+          'tono': tono,
+        }),
+      ),
+      _leerToken,
+    );
+  }
+
+  /// POST /auth/login — valida las credenciales y devuelve el JWT.
+  Future<RespuestaApi<String>> iniciarSesion({
+    required String email,
+    required String password,
+  }) {
+    return _ejecutar(
       () => _cliente.post(
         Uri.parse('$baseUrl/auth/login'),
         headers: _cabeceras,
         body: jsonEncode({'email': email, 'password': password}),
       ),
-      (cuerpo) => (jsonDecode(cuerpo) as Map<String, dynamic>)['access_token'] as String,
+      _leerToken,
     );
-    _token = respuesta.datos;
-    return respuesta;
   }
 
+  // --------------------------------------------------------------- protegido
+
   /// GET /auth/me — identidad del usuario tomada del JWT (0 consultas SQL).
-  Future<RespuestaApi<Map<String, dynamic>>> perfil() async {
+  Future<RespuestaApi<Usuario>> perfil() {
     return _ejecutar(
       () => _cliente.get(Uri.parse('$baseUrl/auth/me'), headers: _cabeceras),
-      (cuerpo) => jsonDecode(cuerpo) as Map<String, dynamic>,
+      (cuerpo) => Usuario.desdeJson(jsonDecode(cuerpo) as Map<String, dynamic>),
     );
   }
 
@@ -128,7 +96,7 @@ class AtlasApi {
   ///
   /// [optimizado] alterna entre la consulta con eager loading y la versión
   /// ingenua con N+1; la diferencia se lee en la cabecera `X-Query-Count`.
-  Future<RespuestaApi<List<Idea>>> listarIdeas({bool optimizado = true}) async {
+  Future<RespuestaApi<List<Idea>>> listarIdeas({bool optimizado = true}) {
     return _ejecutar(
       () => _cliente.get(
         Uri.parse('$baseUrl/ideas?optimized=$optimizado'),
@@ -140,12 +108,20 @@ class AtlasApi {
     );
   }
 
+  /// GET /ideas/{id} — recarga una idea concreta desde la base de datos.
+  Future<RespuestaApi<Idea>> obtenerIdea(int id) {
+    return _ejecutar(
+      () => _cliente.get(Uri.parse('$baseUrl/ideas/$id'), headers: _cabeceras),
+      (cuerpo) => Idea.desdeJson(jsonDecode(cuerpo) as Map<String, dynamic>),
+    );
+  }
+
   /// POST /ideas — crea una idea y devuelve la fila persistida en Postgres.
   Future<RespuestaApi<Idea>> crearIdea({
     required String titulo,
     required String contenido,
     List<String> etiquetas = const [],
-  }) async {
+  }) {
     return _ejecutar(
       () => _cliente.post(
         Uri.parse('$baseUrl/ideas'),
@@ -160,6 +136,23 @@ class AtlasApi {
       (cuerpo) => Idea.desdeJson(jsonDecode(cuerpo) as Map<String, dynamic>),
     );
   }
+
+  /// GET /dashboard/metricas — reporte agregado del usuario (caché-aside).
+  Future<RespuestaApi<MetricasPanel>> metricas() {
+    return _ejecutar(
+      () => _cliente.get(
+        Uri.parse('$baseUrl/dashboard/metricas'),
+        headers: _cabeceras,
+      ),
+      (cuerpo) =>
+          MetricasPanel.desdeJson(jsonDecode(cuerpo) as Map<String, dynamic>),
+    );
+  }
+
+  // ----------------------------------------------------------------- interno
+
+  static String _leerToken(String cuerpo) =>
+      (jsonDecode(cuerpo) as Map<String, dynamic>)['access_token'] as String;
 
   /// Envuelve la llamada HTTP: mide el tiempo, valida el código de estado y
   /// convierte las excepciones de red en mensajes accionables.
@@ -210,11 +203,23 @@ class AtlasApi {
     }
   }
 
+  /// Traduce el cuerpo de error de FastAPI a una sola línea legible.
+  ///
+  /// `detail` llega como texto en los errores de negocio (401, 404, 409) y
+  /// como lista de objetos en los errores de validación de Pydantic (422).
   String _mensajeDeError(http.Response respuesta) {
     try {
       final cuerpo = jsonDecode(utf8.decode(respuesta.bodyBytes));
-      if (cuerpo is Map<String, dynamic> && cuerpo['detail'] != null) {
-        return '${respuesta.statusCode}: ${cuerpo['detail']}';
+      if (cuerpo is Map<String, dynamic>) {
+        final detalle = cuerpo['detail'];
+        if (detalle is String && detalle.isNotEmpty) return detalle;
+        if (detalle is List && detalle.isNotEmpty) {
+          final mensajes = detalle
+              .whereType<Map<String, dynamic>>()
+              .map((e) => (e['msg'] ?? '').toString())
+              .where((m) => m.isNotEmpty);
+          if (mensajes.isNotEmpty) return mensajes.join('\n');
+        }
       }
     } catch (_) {
       // Cuerpo no JSON: se usa el mensaje genérico de abajo.

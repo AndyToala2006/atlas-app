@@ -28,6 +28,25 @@ class AppConfig {
   /// Tiempo máximo de espera de cada solicitud HTTP.
   static const Duration timeout = Duration(seconds: 10);
 
+  /// Credenciales de la cuenta de demostración, usadas por el botón que
+  /// rellena el formulario de login durante una presentación.
+  ///
+  /// NO se escriben en el código ni se versionan: se inyectan al compilar, del
+  /// mismo modo que la URL base. Si no se pasan, el botón no aparece y el
+  /// formulario se llena a mano.
+  ///
+  ///   flutter run --dart-define=DEMO_EMAIL=... --dart-define=DEMO_PASSWORD=...
+  static const String demoEmail = String.fromEnvironment('DEMO_EMAIL');
+  static const String demoPassword = String.fromEnvironment('DEMO_PASSWORD');
+
+  /// `true` cuando se inyectaron ambas credenciales de demostración.
+  static bool get hayCredencialesDemo =>
+      demoEmail.isNotEmpty && demoPassword.isNotEmpty;
+
+  /// Tonos de redacción admitidos por el backend al crear una cuenta
+  /// (`PerfilTono.nombre`). El primero es el valor por defecto.
+  static const List<String> tonos = ['cercano', 'profesional', 'inspirador'];
+
   /// `true` cuando la URL base viaja sin cifrar (http). Se usa para advertir en
   /// pantalla que esa configuración solo es válida en desarrollo.
   static bool get usaTraficoSinCifrar => apiBaseUrl.startsWith('http://');
