@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import 'config/app_config.dart';
 import 'estado/ambito_atlas.dart';
@@ -15,7 +15,7 @@ void main() => runApp(const AtlasApp());
 
 /// Atlas — cliente móvil del proyecto integrador.
 ///
-/// Taller Semana 10: autenticación, navegación por rutas con nombre, manejo
+/// Taller Semana 12: autenticación, navegación por rutas con nombre, manejo
 /// de estado y formularios validados.
 ///
 /// El árbol queda así, de fuera hacia dentro:

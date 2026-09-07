@@ -1,4 +1,4 @@
-# Guion del video — Taller Semana 10
+﻿# Guion del video — Taller Semana 12
 
 **Autenticación, navegación, estado y formularios**
 Aplicaciones Móviles · 2626-UEA-L-UFPTI-008-C · Modalidad individual
@@ -26,7 +26,7 @@ Duración objetivo: **4 minutos** (el rango permitido es 3 a 5)
 
 ## Bloque 0 — Presentación (20 s)
 
-> "Soy Andy Toala. Este es el taller de la semana 10 de Aplicaciones Móviles, sobre mi proyecto integrador **Atlas**: una aplicación que captura ideas, las convierte en publicaciones con inteligencia artificial y mide cómo rinden.
+> "Soy Andy Toala. Este es el taller de la Semana 12 de Aplicaciones Móviles, sobre mi proyecto integrador **Atlas**: una aplicación que captura ideas, las convierte en publicaciones con inteligencia artificial y mide cómo rinden.
 >
 > La semana pasada dejé el entorno montado y la aplicación hablando con mi propio backend. Hoy le agrego el flujo de sesión completo: autenticación, registro, navegación protegida, manejo de estado y formularios validados."
 

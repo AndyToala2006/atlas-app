@@ -1,4 +1,4 @@
-# Atlas — aplicación móvil multiplataforma
+﻿# Atlas — aplicación móvil multiplataforma
 
 Cliente móvil del proyecto integrador **Atlas**, desarrollado con Flutter y conectado al backend propio [`atlas-backend`](https://github.com/AndyToala2006/atlas-backend) (FastAPI + PostgreSQL + Redis + Celery).
 
@@ -6,7 +6,7 @@ Cliente móvil del proyecto integrador **Atlas**, desarrollado con Flutter y con
 |---|---|
 | **Asignatura** | Aplicaciones Móviles (UEA-L-UFPTI-008) |
 | **Código de aula** | 2626-UEA-L-UFPTI-008-C |
-| **Taller vigente** | Semana 10 — Autenticación, navegación, estado y formularios (§7) |
+| **Taller vigente** | Semana 12 — Autenticación, navegación, estado y formularios (§7) |
 | **Taller anterior** | Semana 9 — Configuración, verificación y conexión del entorno (§1–§6) |
 | **Modalidad** | Individual |
 | **Autor** | Andy Toala |
@@ -374,7 +374,7 @@ Sin esos valores el botón no se muestra y el formulario se llena a mano, que es
 
 ## 7. Autenticación, navegación y manejo de estado
 
-*(Taller Semana 10)*
+*(Taller Semana 12)*
 
 ### 7.1 Flujo de autenticación
 
@@ -610,9 +610,9 @@ Este repositorio es el **componente móvil** de la práctica experimental de la 
 | 4 | Base de datos normalizada (9 entidades, PostgreSQL) | `andytoala-dev/06-aplicaciones-moviles` |
 | 8 | Backend, APIs, autenticación y optimización | `atlas-backend` |
 | 9 | Entorno móvil, proyecto base e integración con la API | `atlas-app` (este repositorio) |
-| **10** | **Autenticación, navegación, manejo de estado y formularios** | **`atlas-app`** (este repositorio) |
+| **12** | **Autenticación, navegación, manejo de estado y formularios** | **`atlas-app`** (este repositorio) |
 
-En términos de la guía de la práctica experimental, la Semana 9 cubrió el arranque de las actividades 12 (desarrollo de la aplicación móvil) y 13 (conexión con el backend); la Semana 10 continúa la actividad 12 con el flujo de sesión, la navegación y los formularios de la aplicación.
+En términos de la guía de la práctica experimental, la Semana 9 cubrió el arranque de las actividades 12 (desarrollo de la aplicación móvil) y 13 (conexión con el backend); la Semana 12 continúa la actividad 12 con el flujo de sesión, la navegación y los formularios de la aplicación.
 
 ---
 

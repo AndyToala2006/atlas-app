@@ -1,0 +1,325 @@
+﻿===========================================================
+ GUION - TALLER Semana 12
+ Autenticacion, navegacion, estado y formularios
+ Andy Toala - Aplicaciones Moviles - Proyecto Atlas
+ Duracion: 4 minutos (permitido 3 a 5)
+===========================================================
+
+ >> El texto entre comillas es lo que DICES.
+ >> Las lineas con [ ] son lo que HACES.
+
+
+-----------------------------------------------------------
+ ANTES DE GRABAR
+-----------------------------------------------------------
+
+ [ ] Backend levantado (docker compose up -d)
+ [ ] Telefono conectado y espejo scrcpy abierto
+ [ ] CERRAR SESION en la app si quedaste dentro
+     (la sesion persiste; si no, arrancas en el area privada)
+ [ ] Tener listo un correo NUEVO para el registro
+     (si ya existe, el backend responde 409)
+ [ ] Cerrar pestanas y ventanas que no uses
+
+
+===========================================================
+ BLOQUE 0 - PRESENTACION            (20 s)
+===========================================================
+
+ "Soy Andy Toala. Este es el taller de la Semana 12 de
+  Aplicaciones Moviles, sobre mi proyecto integrador Atlas:
+  una aplicacion que captura ideas, las convierte en
+  publicaciones con inteligencia artificial y mide como
+  rinden.
+
+  La semana pasada deje el entorno montado y la aplicacion
+  hablando con mi propio backend. Hoy le agrego el flujo de
+  sesion completo: autenticacion, registro, navegacion
+  protegida, manejo de estado y formularios validados."
+
+
+===========================================================
+ BLOQUE 1 - EJECUCION                (20 s)
+===========================================================
+
+ [ ] Ejecutar:
+     .\run.ps1 -DemoEmail demo@atlas.app -DemoPassword atlas123
+
+ "Arranco con el lanzador del proyecto. Detecta la IP del
+  computador, sincroniza la politica de seguridad de red de
+  Android y compila sobre el telefono fisico. La URL de la
+  API y las credenciales de demostracion se inyectan como
+  variables de entorno: no estan escritas en el repositorio."
+
+ [ ] La app abre en el LOGIN
+
+ "Fijense en el primer detalle: la aplicacion no arranca en
+  el contenido. Arranca comprobando si hay una sesion
+  guardada en el almacen cifrado del telefono; como no la
+  hay, va al login."
+
+
+===========================================================
+ BLOQUE 2 - VALIDACIONES             (45 s)
+===========================================================
+ Hazlo despacio, que se lean los mensajes.
+
+ 2.1  [ ] Pulsar "Iniciar sesion" con TODO EN BLANCO
+
+ "Campos obligatorios: 'El correo es obligatorio', 'La
+  contrasena es obligatoria'. Y algo importante: no salio
+  ninguna peticion de red. El formulario no se valida contra
+  el servidor, se valida antes."
+
+ 2.2  [ ] Escribir  correo-sin-arroba  /  123
+
+ "Ahora el formato: el correo no cumple el patron y la
+  contrasena se queda corta. Los limites que aplico aqui son
+  los mismos que declara el esquema de Pydantic en mi
+  backend: contrasena de 6 a 72 caracteres. Asi el telefono
+  rechaza exactamente lo que rechazaria el servidor."
+
+ 2.3  [ ] Empezar a escribir un correo valido
+
+ "Y en cuanto corrijo, el error desaparece solo. Hasta el
+  primer envio no marco nada en rojo; despues, cada
+  pulsacion revalida."
+
+
+===========================================================
+ BLOQUE 3 - CREDENCIALES INCORRECTAS (25 s)
+===========================================================
+
+ [ ] demo@atlas.app + contrasena equivocada -> Iniciar sesion
+
+ "Ahora los datos son validos como formato, asi que la
+  peticion si sale. El backend responde 401 y la aplicacion
+  no muestra el error crudo: lo traduce a 'Correo o
+  contrasena incorrectos'.
+
+  El cliente HTTP conserva el codigo de estado y la capa de
+  estado decide el mensaje: 401 es credenciales, 409 es
+  correo ya registrado, 422 son los errores de validacion
+  del servidor. Y seguimos en el login: no se abrio nada."
+
+
+===========================================================
+ BLOQUE 4 - REGISTRO                 (40 s)
+===========================================================
+
+ [ ] Pulsar "Crear una cuenta"
+
+ "Mi backend expone POST /auth/register, asi que la
+  aplicacion ofrece autorregistro."
+
+ 4.1  [ ] Llenar todo, con confirmacion DISTINTA
+
+ "Aqui hay una validacion que solo existe en el cliente: la
+  confirmacion de la contrasena. El servidor no la conoce."
+
+ 4.2  [ ] Contrasena:  solotexto
+
+ "Y esta regla es mas estricta que la del backend a
+  proposito: al crear la cuenta exijo al menos una letra y
+  un numero."
+
+ 4.3  [ ] Corregir, elegir tono, pulsar "Registrarme"
+
+ "El registro crea el usuario, su perfil de tono, y devuelve
+  el token. Entro directo, sin pasar otra vez por el login."
+
+
+===========================================================
+ BLOQUE 5 - AUTENTICACION Y AREA PRIVADA  (50 s)
+===========================================================
+
+ [ ] Cerrar sesion desde Perfil, volver al login
+ [ ] "Usar cuenta de demostracion" -> Iniciar sesion
+
+ "Ahora con la cuenta que trae datos. La aplicacion hace dos
+  llamadas: POST /auth/login para obtener el JWT, y
+  GET /auth/me para el perfil.
+
+  Ese 'me' no consulta la base de datos: la identidad viaja
+  firmada dentro del token, en los claims. Es la
+  optimizacion que implemente en la semana 8 y que aqui se
+  aprovecha.
+
+  Y ya estoy en el area privada, que es la primera pantalla
+  protegida: mis ideas, traidas con GET /ideas y el token en
+  la cabecera Authorization."
+
+ [ ] Pulsar el ICONO DEL VELOCIMETRO (arriba a la derecha)
+
+ "Aqui abro el detalle tecnico de la ultima respuesta. Estas
+  son las cabeceras reales que devuelve mi backend: el
+  tiempo de proceso en el servidor y el numero de consultas
+  SQL. La informacion viene de la API, no esta quemada en el
+  cliente."
+
+ [ ] Cambiar el interruptor "Consulta optimizada"
+     (observar como salta el numero de SQL)
+
+ "Y este interruptor alterna el parametro optimized de
+  GET /ideas. Con eager loading el numero de consultas es
+  constante; sin el aparece el problema N+1, una consulta
+  extra por cada idea. Con las ideas que tengo cargadas, la
+  diferencia se ve de golpe."
+
+ [ ] Volver a pulsar el velocimetro para cerrar el panel
+
+
+===========================================================
+ BLOQUE 6 - NAVEGACION Y ESTADO      (50 s)
+===========================================================
+ *** ESTE BLOQUE ES EL QUE MAS PUNTUA. NO LO APURES. ***
+
+ 6.1  [ ] Recorrer  Ideas -> Panel -> Perfil
+
+ "Navego entre las tres secciones. Miren la barra superior:
+  mi nombre sigue ahi en las tres. No lo guarda ninguna
+  pantalla; lo lee del controlador de sesion, que es comun a
+  todas."
+
+ 6.2  [ ] Volver a Ideas y abrir una idea
+
+ "El detalle se abre con pushNamed y recibe la idea como
+  argumento. Aqui tambien aparece el usuario: el estado
+  alcanza igual a las rutas apiladas, no solo a las
+  pestanas."
+
+      [ ] Volver atras
+
+ "Y al volver, la lista ya esta: no se repitio la peticion.
+  Las ideas viven en su controlador, no en el widget."
+
+ 6.3  [ ] "Nueva idea" -> escribir un titulo a medias
+      [ ] Salir sin guardar
+
+ "Escribo una idea a medias... y me salgo."
+
+      [ ] Mostrar "Tienes un borrador sin guardar"
+      [ ] Volver a entrar
+
+ "El texto sigue intacto. La pantalla se destruyo, el estado
+  no."
+
+ 6.4  [ ] Mostrar el arbol de carpetas en VS Code
+
+ "El manejo de estado lo resolvi con las herramientas del
+  propio Flutter, sin paquetes externos: ChangeNotifier para
+  guardar y notificar, un InheritedWidget llamado
+  AmbitoAtlas para repartirlo, y ListenableBuilder para
+  redibujar solo lo que depende del dato.
+
+  Lo decisivo es DONDE viven los tres controladores: por
+  encima del Navigator. Por eso sobreviven a la navegacion.
+
+  La navegacion es por rutas con nombre, todas en un solo
+  archivo, rutas/rutas.dart, con un unico onGenerateRoute."
+
+
+===========================================================
+ BLOQUE 6.5 - SESION PERSISTENTE     (20 s)  [OPCIONAL]
+===========================================================
+ Saltalo si vas justo de tiempo.
+
+ [ ] Cerrar la app del todo y volver a abrirla
+
+ "Y esto va un paso mas alla de lo que pide el taller.
+  Cierro la aplicacion del todo... y al volver a abrirla
+  entro directo, sin volver a escribir la contrasena.
+
+  El token JWT se guarda en el almacen cifrado del sistema:
+  EncryptedSharedPreferences respaldado por el Keystore de
+  Android, o el Keychain en iOS. Nunca en almacenamiento en
+  claro. Al arrancar se lee, se valida contra GET /auth/me,
+  y si el backend lo rechaza se borra y aparece el login."
+
+
+===========================================================
+ BLOQUE 7 - CIERRE DE SESION         (40 s)
+===========================================================
+
+ 7.1  [ ] Perfil -> BAJAR HASTA EL FINAL -> "Cerrar sesion"
+      [ ] Confirmar en el dialogo
+
+ "Cierro sesion. Se borra el token del cliente HTTP y del
+  almacen cifrado, y se limpian los datos cargados, para que
+  las ideas de un usuario no queden visibles para el
+  siguiente que entre en este mismo telefono."
+
+ 7.2  [ ] En el login, pulsar "Probar acceso directo"
+
+ "Y esta es la prueba de la proteccion. Este enlace intenta
+  abrir el area privada a proposito.
+
+  No entra: aparece 'Esta seccion es privada'. Cada ruta
+  protegida se construye envuelta en una guardia que escucha
+  al controlador de sesion. Como la guardia esta en la tabla
+  de rutas y no dentro de cada pantalla, no hay forma de
+  esquivarla: da igual de donde venga la navegacion.
+
+  Y la proteccion es doble: aunque alguien llegara a la
+  pantalla, la API responderia 401, porque la cabecera de
+  autorizacion iria vacia."
+
+
+===========================================================
+ BLOQUE 8 - ORGANIZACION Y CIERRE    (30 s)
+===========================================================
+
+ [ ] Mostrar el arbol de lib/ en VS Code
+
+ "Cierro con la organizacion, que el taller pide de forma
+  expresa.
+
+  'modelos' son los datos. 'servicios' tiene el cliente HTTP
+  -la unica puerta a la API- y el almacen cifrado del token.
+  'estado' son los tres controladores. 'rutas' es la tabla
+  de navegacion con su guardia. 'pantallas' son las paginas.
+  'widgets' son los componentes que se repiten.
+  'utiles/validadores.dart' concentra las reglas de los
+  formularios. Y 'tema/tema_atlas.dart' es el sistema de
+  diseno: la paleta, la tipografia y el estilo de cada
+  componente en un solo archivo, con tema claro y oscuro.
+
+  Esa separacion no es mia por gusto: es la misma que sigue
+  el proyecto de referencia de la asignatura -una puerta
+  HTTP unica, el token en almacenamiento seguro y nunca en
+  claro, el estado en su propia capa, y las rutas protegidas
+  separadas de las paginas-, traducida de Ionic a Flutter.
+
+  Todo el flujo esta cubierto por diecisiete pruebas
+  automatizadas contra un backend simulado, que corren con
+  'flutter test' sin necesidad de levantar la API.
+
+  El repositorio y el detalle tecnico de estas decisiones
+  estan en la seccion 7 del README. Gracias."
+
+
+-----------------------------------------------------------
+ DESPUES DE GRABAR
+-----------------------------------------------------------
+
+ [ ] Subir el video a YouTube (NO LISTADO) o a Drive
+ [ ] Abrir el enlace en INCOGNITO para verificar permisos
+ [ ] Subir a Moodle:
+       - enlace del video
+       - https://github.com/AndyToala2006/atlas-app
+
+
+-----------------------------------------------------------
+ SI ALGO FALLA
+-----------------------------------------------------------
+
+ La app no conecta:
+   - Comprobar que el backend responde: localhost:8000/health
+   - Telefono y PC en la misma Wi-Fi
+   - Volver a lanzar abrir-firewall.ps1 como administrador
+
+ Arranca dentro del area privada:
+   - Cerraste sesion? La sesion persiste entre arranques
+
+ El registro falla con 409:
+   - Ese correo ya existe, usa otro

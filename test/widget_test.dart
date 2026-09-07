@@ -1,5 +1,5 @@
-// Pruebas del flujo de autenticacion, navegacion, estado y formularios
-// (Taller Semana 10).
+﻿// Pruebas del flujo de autenticacion, navegacion, estado y formularios
+// (Taller Semana 12).
 //
 // El backend se sustituye por un `MockClient` de package:http y el almacen
 // cifrado por uno en memoria, de modo que las pruebas recorren el flujo
