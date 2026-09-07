@@ -96,7 +96,7 @@ Pulsa *Crear una cuenta*.
 
 ---
 
-## Bloque 5 — Autenticación y pantalla protegida (30 s)
+## Bloque 5 — Autenticación y pantalla protegida (50 s)
 
 Cierra sesión desde *Perfil* si quedaste dentro, y vuelve al login. Pulsa *Usar cuenta de demostración* y entra.
 
@@ -106,9 +106,15 @@ Cierra sesión desde *Perfil* si quedaste dentro, y vuelve al login. Pulsa *Usar
 >
 > Y ya estoy en el área privada, que es la primera pantalla protegida: mis ideas, traídas con `GET /ideas` y el token en la cabecera `Authorization`."
 
-Señala la tarjeta de diagnóstico.
+Pulsa el **icono del velocímetro**, arriba a la derecha del listado. Se despliega el panel técnico.
 
-> "Cada respuesta muestra las cabeceras reales del backend: tiempo de proceso y número de consultas SQL. La información viene de la API, no está quemada en el cliente."
+> "Aquí abro el detalle técnico de la última respuesta. Estas son las cabeceras reales que devuelve mi backend: el tiempo de proceso en el servidor y el número de consultas SQL. La información viene de la API, no está quemada en el cliente."
+
+Con el panel abierto, **cambia el interruptor "Consulta optimizada"** y observa cómo salta el número de consultas SQL.
+
+> "Y este interruptor alterna el parámetro `optimized` de `GET /ideas`. Con eager loading el número de consultas es constante; sin él aparece el problema N+1, una consulta extra por cada idea. Con las ideas que tengo cargadas, la diferencia se ve de golpe."
+
+Vuelve a pulsar el velocímetro para cerrar el panel.
 
 ---
 
@@ -158,7 +164,7 @@ Cierra la aplicación por completo (deslízala fuera de las recientes) y vuelve 
 
 ## Bloque 7 — Cierre de sesión y bloqueo posterior (40 s)
 
-**7.1 Cerrar sesión.** *Perfil* → *Cerrar sesión* → confirmar.
+**7.1 Cerrar sesión.** *Perfil* → **baja hasta el final de la pantalla** → *Cerrar sesión* → confirmar en el diálogo.
 
 > "Cierro sesión. Se borra el token del cliente HTTP **y del almacén cifrado**, y se limpian los datos cargados, para que las ideas de un usuario no queden visibles para el siguiente que entre en este mismo teléfono."
 
