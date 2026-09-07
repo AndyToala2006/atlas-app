@@ -59,6 +59,19 @@ if (-not $Subred) {
 }
 
 Write-Host "Subred autorizada     : $Subred"
+
+# Windows aplica cada regla solo a los perfiles indicados. Una red Wi-Fi ajena
+# (la de una universidad, por ejemplo) se clasifica como 'Public', asi que una
+# regla creada solo para 'Private' existe pero NO surte efecto: el telefono
+# recibe un timeout sin ninguna senal de que el firewall es el culpable. Por eso
+# la regla cubre ambos perfiles; lo que la mantiene acotada no es el perfil,
+# sino la subred local y el unico puerto declarados arriba.
+$perfilRed = (Get-NetConnectionProfile -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPv4Connectivity -ne 'Disconnected' } |
+    Select-Object -First 1)
+if ($perfilRed) {
+    Write-Host ("Perfil de la red      : {0} ({1})" -f $perfilRed.NetworkCategory, $perfilRed.Name)
+}
 Write-Host ""
 
 Remove-NetFirewallRule -DisplayName $nombre -ErrorAction SilentlyContinue
@@ -71,7 +84,7 @@ New-NetFirewallRule `
     -Protocol TCP `
     -LocalPort $Puerto `
     -RemoteAddress $Subred `
-    -Profile Private | Out-Null
+    -Profile Private, Public | Out-Null
 
 Write-Host "Regla creada correctamente." -ForegroundColor Green
 $regla = Get-NetFirewallRule -DisplayName $nombre
