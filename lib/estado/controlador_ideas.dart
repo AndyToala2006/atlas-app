@@ -117,6 +117,81 @@ class ControladorIdeas extends ChangeNotifier {
     }
   }
 
+  /// `PATCH /ideas/{id}`. Devuelve la idea actualizada o `null` si falló.
+  ///
+  /// Sustituye la fila en [_ideas] CONSERVANDO SU POSICIÓN: si se reinsertara
+  /// al principio, la lista daría un salto delante del usuario que solo corrigió
+  /// una palabra del título. El borrador no se toca: es exclusivo del formulario
+  /// de creación, y limpiarlo aquí borraría una idea nueva a medio escribir.
+  Future<Idea?> editar({
+    required int id,
+    required String titulo,
+    required String contenido,
+    required List<String> etiquetas,
+  }) async {
+    _cargando = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final respuesta = await _api.actualizarIdea(
+        id: id,
+        titulo: titulo.trim(),
+        contenido: contenido.trim(),
+        etiquetas: etiquetas,
+      );
+      _ideas = [
+        for (final idea in _ideas)
+          if (idea.id == id) respuesta.datos else idea,
+      ];
+      _ultimaRespuesta = respuesta;
+      return respuesta.datos;
+    } on ErrorApi catch (e) {
+      _error = _traducir(e);
+      return null;
+    } finally {
+      _cargando = false;
+      notifyListeners();
+    }
+  }
+
+  /// `DELETE /ideas/{id}`. Devuelve `true` si el backend confirmó el borrado.
+  ///
+  /// La idea se quita de [_ideas] solo después del 204: si se quitara antes,
+  /// un fallo de red dejaría la lista mintiendo sobre lo que hay en Postgres.
+  Future<bool> eliminar(int id) async {
+    _cargando = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final respuesta = await _api.eliminarIdea(id);
+      _ideas = [
+        for (final idea in _ideas)
+          if (idea.id != id) idea,
+      ];
+      _ultimaRespuesta = respuesta;
+      return true;
+    } on ErrorApi catch (e) {
+      _error = _traducir(e);
+      return false;
+    } finally {
+      _cargando = false;
+      notifyListeners();
+    }
+  }
+
+  /// Idea ya cargada en el estado compartido, o `null` si no está en la lista.
+  ///
+  /// La usa el detalle para releer la versión vigente al volver de la pantalla
+  /// de edición, en vez de quedarse con la copia con la que se abrió.
+  Idea? ideaPorId(int id) {
+    for (final idea in _ideas) {
+      if (idea.id == id) return idea;
+    }
+    return null;
+  }
+
   /// `GET /ideas/{id}`: vuelve a leer una idea concreta desde la base.
   Future<Idea?> recargarIdea(int id) async {
     try {

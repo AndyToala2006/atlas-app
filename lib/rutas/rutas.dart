@@ -32,6 +32,7 @@ class Rutas {
   static const String inicio = '/inicio';
   static const String nuevaIdea = '/ideas/nueva';
   static const String detalleIdea = '/ideas/detalle';
+  static const String editarIdea = '/ideas/editar';
 
   static const String rutaInicial = carga;
 
@@ -60,6 +61,18 @@ class Rutas {
         if (idea is! Idea) return _ruta(const _RutaInvalida(), ajustes);
         return _ruta(
           GuardiaSesion(child: PantallaDetalleIdea(idea: idea)),
+          ajustes,
+        );
+
+      // La edición reutiliza la pantalla del formulario de creación: cambia el
+      // destino de la escritura (`PATCH` en vez de `POST`), no los campos. El
+      // argumento se comprueba antes de construirla porque un `pushNamed` sin
+      // idea dejaría el formulario sin saber qué fila está editando.
+      case editarIdea:
+        final argumento = ajustes.arguments;
+        if (argumento is! Idea) return _ruta(const _RutaInvalida(), ajustes);
+        return _ruta(
+          GuardiaSesion(child: PantallaNuevaIdea(ideaAEditar: argumento)),
           ajustes,
         );
 

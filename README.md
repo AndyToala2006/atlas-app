@@ -6,8 +6,9 @@ Cliente móvil del proyecto integrador **Atlas**, desarrollado con Flutter y con
 |---|---|
 | **Asignatura** | Aplicaciones Móviles (UEA-L-UFPTI-008) |
 | **Código de aula** | 2626-UEA-L-UFPTI-008-C |
-| **Taller vigente** | Semana 12 — Autenticación, navegación, estado y formularios (§7) |
-| **Taller anterior** | Semana 9 — Configuración, verificación y conexión del entorno (§1–§6) |
+| **Taller vigente** | Semana 13 — CRUD completo de ideas: crear, consultar, editar y eliminar (§6, §7.3) |
+| **Taller anterior** | Semana 12 — Autenticación, navegación, estado y formularios (§7) |
+| **Talleres previos** | Semana 9 — Configuración, verificación y conexión del entorno (§1–§6) |
 | **Modalidad** | Individual |
 | **Autor** | Andy Toala |
 
@@ -350,9 +351,14 @@ La aplicación consume el backend construido en la unidad anterior. Estas son la
 | **Diagnóstico** | `GET /health` | Primera solicitud exitosa. Endpoint público, sin autenticación. |
 | **Login** | `POST /auth/login` → `GET /auth/me` | Autenticación con JWT. El token se guarda y viaja en `Authorization: Bearer`. |
 | **Registro** | `POST /auth/register` → `GET /auth/me` | Alta de cuenta con sesión iniciada de inmediato. |
-| **Ideas** | `GET /ideas`, `POST /ideas` | Lectura y escritura de datos reales en PostgreSQL con el usuario autenticado. |
-| **Detalle de idea** | `GET /ideas/{id}` | Relectura puntual de un registro, también protegida por token. |
+| **Ideas** | `GET /ideas` | Listado del usuario autenticado. Respuesta *ligera*: el backend no devuelve aquí el campo `contenido`. |
+| **Nueva idea** | `POST /ideas` | Escritura de datos reales en PostgreSQL: la idea creada vuelve ya con su `id` y su detalle. |
+| **Detalle de idea** | `GET /ideas/{id}` | Relectura puntual de un registro, también protegida por token. Es la única llamada que trae el `contenido`, y por eso el detalle lo pide al abrirse si aún no lo tiene. |
+| **Editar idea** | `PATCH /ideas/{id}` | Actualización parcial: el cuerpo lleva solo los campos que cambiaron. Se lanza desde el mismo formulario de creación en modo edición, al que se llega con el botón *Editar* del detalle. |
+| **Detalle de idea** | `DELETE /ideas/{id}` | Borrado real de la fila, previa confirmación en un diálogo. El backend responde `204` sin cuerpo y la idea desaparece del listado sin recargarlo. |
 | **Panel** | `GET /dashboard/metricas` | Reporte agregado servido con caché-aside en Redis. |
+
+Con `PATCH` y `DELETE` el ciclo de vida completo de una idea —crear, consultar, editar y eliminar— se ejecuta desde el teléfono contra la API real, sin Postman ni consultas manuales a la base. Las cuatro rutas van firmadas con el token: una idea de otro usuario responde `404`, así que la aplicación nunca puede leer ni modificar datos ajenos.
 
 Cada respuesta se muestra en pantalla junto con los **datos de diagnóstico** que el backend devuelve en cabeceras, lo que evidencia que la información proviene realmente de la API y no de datos simulados en el cliente:
 
@@ -426,6 +432,9 @@ Navegación por **rutas con nombre**, todas declaradas en [`lib/rutas/rutas.dart
 | `/inicio` | Contenedor con Ideas · Panel · Perfil | **Protegida** |
 | `/ideas/nueva` | Formulario de nueva idea | **Protegida** |
 | `/ideas/detalle` | Detalle de una idea (recibe la idea como argumento) | **Protegida** |
+| `/ideas/editar` | El mismo formulario en modo edición (recibe la idea como argumento) | **Protegida** |
+
+`/ideas/editar` reutiliza la pantalla de creación en lugar de duplicarla: si el argumento no es una `Idea` la tabla devuelve la ruta inválida, igual que hace `/ideas/detalle`. Al cerrarse devuelve la idea actualizada con `Navigator.pop`, de modo que el detalle se refresca sin volver a pedirla al backend.
 
 Dentro de `/inicio`, un `NavigationBar` alterna entre las tres secciones sobre un `IndexedStack`, de modo que cambiar de pestaña no destruye la pantalla. Al autenticarse se usa `pushNamedAndRemoveUntil`, así que desde el área privada el botón *atrás* del sistema no devuelve al formulario de login.
 
@@ -530,7 +539,7 @@ atlas-app/
 │   │   └── tema_atlas.dart             Sistema de diseño: color, tipografía y componentes
 │   ├── modelos/                        Datos que viajan entre la API y la interfaz
 │   │   ├── usuario.dart                Usuario autenticado
-│   │   ├── idea.dart                   Idea capturada
+│   │   ├── idea.dart                   Idea capturada (contenido nulable: solo llega en el detalle)
 │   │   ├── metricas_panel.dart         Reporte del panel
 │   │   └── respuesta_api.dart          RespuestaApi<T> y ErrorApi
 │   ├── servicios/
@@ -538,7 +547,7 @@ atlas-app/
 │   │   └── almacen_sesion.dart         Token en el Keystore / Keychain del dispositivo
 │   ├── estado/                         Manejo de estado (ChangeNotifier)
 │   │   ├── controlador_sesion.dart     Sesión, usuario y token
-│   │   ├── controlador_ideas.dart      Lista de ideas y borrador
+│   │   ├── controlador_ideas.dart      Lista de ideas, borrador y CRUD (crear, editar, eliminar)
 │   │   ├── controlador_panel.dart      Métricas del panel
 │   │   └── ambito_atlas.dart           Reparte los controladores (InheritedWidget)
 │   ├── rutas/
@@ -551,8 +560,8 @@ atlas-app/
 │   │   ├── pantalla_conexion.dart      Diagnóstico de conectividad (pública)
 │   │   ├── pantalla_inicio.dart        Contenedor privado con barra inferior
 │   │   ├── pantalla_ideas.dart         Listado de ideas
-│   │   ├── pantalla_nueva_idea.dart    Formulario de creación
-│   │   ├── pantalla_detalle_idea.dart  Detalle de una idea
+│   │   ├── pantalla_nueva_idea.dart    Formulario de creación y de edición (misma pantalla)
+│   │   ├── pantalla_detalle_idea.dart  Detalle de una idea, con editar y eliminar
 │   │   ├── pantalla_panel.dart         Panel de métricas
 │   │   └── pantalla_perfil.dart        Perfil y cierre de sesión
 │   ├── utiles/
@@ -607,12 +616,15 @@ Este repositorio es el **componente móvil** de la práctica experimental de la 
 | Semana | Entregable | Repositorio |
 |---|---|---|
 | 1–3 | Propuesta, paradigma multiplataforma, lenguaje e IDE | `andytoala-dev/06-aplicaciones-moviles` |
-| 4 | Base de datos normalizada (9 entidades, PostgreSQL) | `andytoala-dev/06-aplicaciones-moviles` |
+| 4 | Base de datos normalizada (7 entidades y una tabla puente, PostgreSQL) | `andytoala-dev/06-aplicaciones-moviles` |
 | 8 | Backend, APIs, autenticación y optimización | `atlas-backend` |
 | 9 | Entorno móvil, proyecto base e integración con la API | `atlas-app` (este repositorio) |
-| **12** | **Autenticación, navegación, manejo de estado y formularios** | **`atlas-app`** (este repositorio) |
+| 12 | Autenticación, navegación, manejo de estado y formularios | `atlas-app` (este repositorio) |
+| **13** | **CRUD completo de ideas contra la API real (crear, consultar, editar y eliminar)** | **`atlas-app`** + **`atlas-backend`** |
 
-En términos de la guía de la práctica experimental, la Semana 9 cubrió el arranque de las actividades 12 (desarrollo de la aplicación móvil) y 13 (conexión con el backend); la Semana 12 continúa la actividad 12 con el flujo de sesión, la navegación y los formularios de la aplicación.
+El modelo de la Semana 4 se implementa en [`atlas-backend/app/models.py`](https://github.com/AndyToala2006/atlas-backend/blob/main/app/models.py): **7 entidades** —`Usuario`, `PerfilTono`, `Etiqueta`, `Idea`, `Publicacion`, `MetricaPublicacion` y `Job`— más la **tabla puente** `idea_etiqueta`, que resuelve la relación N:M entre ideas y etiquetas.
+
+En términos de la guía de la práctica experimental, la Semana 9 cubrió el arranque de las actividades 12 (desarrollo de la aplicación móvil) y 13 (conexión con el backend); la Semana 12 continuó la actividad 12 con el flujo de sesión, la navegación y los formularios. La **Semana 13 cierra las actividades 7, 13 y 14**: el CRUD completo sobre la base de datos (7), la conexión de la aplicación con el backend propio (13) y la validación del flujo de datos de extremo a extremo (14), verificando en el teléfono que cada operación se refleja realmente en PostgreSQL.
 
 ---
 

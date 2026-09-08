@@ -137,6 +137,47 @@ class AtlasApi {
     );
   }
 
+  /// PATCH /ideas/{id} — edita una idea existente del usuario autenticado.
+  ///
+  /// El cuerpo se arma SOLO con las claves recibidas: un PATCH tiene que ser
+  /// parcial de verdad, así que enviar `titulo: null` no debe traducirse en un
+  /// `"titulo": null` que el backend interpretaría como un cambio. La respuesta
+  /// es `IdeaDetalleOut`, por eso la idea vuelve ya con su `contenido`.
+  Future<RespuestaApi<Idea>> actualizarIdea({
+    required int id,
+    String? titulo,
+    String? contenido,
+    List<String>? etiquetas,
+  }) {
+    return _ejecutar(
+      () => _cliente.patch(
+        Uri.parse('$baseUrl/ideas/$id'),
+        headers: _cabeceras,
+        body: jsonEncode({
+          'titulo': ?titulo,
+          'contenido': ?contenido,
+          'etiquetas': ?etiquetas,
+        }),
+      ),
+      (cuerpo) => Idea.desdeJson(jsonDecode(cuerpo) as Map<String, dynamic>),
+    );
+  }
+
+  /// DELETE /ideas/{id} — borra la fila en Postgres.
+  ///
+  /// El backend responde 204 sin cuerpo, así que no hay nada que decodificar:
+  /// el convertidor ignora el texto vacío y devuelve `true` como señal de que
+  /// la operación se completó.
+  Future<RespuestaApi<bool>> eliminarIdea(int id) {
+    return _ejecutar(
+      () => _cliente.delete(
+        Uri.parse('$baseUrl/ideas/$id'),
+        headers: _cabeceras,
+      ),
+      (_) => true,
+    );
+  }
+
   /// GET /dashboard/metricas — reporte agregado del usuario (caché-aside).
   Future<RespuestaApi<MetricasPanel>> metricas() {
     return _ejecutar(
