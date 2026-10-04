@@ -6,8 +6,11 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../modelos/idea.dart';
+import '../modelos/metrica.dart';
 import '../modelos/metricas_panel.dart';
+import '../modelos/publicacion.dart';
 import '../modelos/respuesta_api.dart';
+import '../modelos/trabajo_ia.dart';
 import '../modelos/usuario.dart';
 
 /// Cliente de la API de Atlas (proyecto atlas-backend, FastAPI).
@@ -18,8 +21,8 @@ import '../modelos/usuario.dart';
 /// cabecera `Authorization` de cada petición protegida.
 class AtlasApi {
   AtlasApi({http.Client? cliente, String? baseUrl})
-      : _cliente = cliente ?? http.Client(),
-        baseUrl = baseUrl ?? AppConfig.apiBaseUrl;
+    : _cliente = cliente ?? http.Client(),
+      baseUrl = baseUrl ?? AppConfig.apiBaseUrl;
 
   final http.Client _cliente;
   final String baseUrl;
@@ -31,9 +34,9 @@ class AtlasApi {
   bool get tieneToken => token != null;
 
   Map<String, String> get _cabeceras => {
-        'Content-Type': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      };
+    'Content-Type': 'application/json',
+    if (token != null) 'Authorization': 'Bearer $token',
+  };
 
   // ----------------------------------------------------------------- público
 
@@ -92,16 +95,29 @@ class AtlasApi {
     );
   }
 
-  /// GET /ideas — listado del usuario autenticado.
+  /// GET /ideas — listado PAGINADO del usuario autenticado.
   ///
   /// [optimizado] alterna entre la consulta con eager loading y la versión
   /// ingenua con N+1; la diferencia se lee en la cabecera `X-Query-Count`.
-  Future<RespuestaApi<List<Idea>>> listarIdeas({bool optimizado = true}) {
+  /// [limite] y [desde] piden una página; [busqueda] filtra por título o
+  /// contenido en el servidor. El total de coincidencias llega en la cabecera
+  /// `X-Total-Count` (ver [RespuestaApi.totalElementos]).
+  Future<RespuestaApi<List<Idea>>> listarIdeas({
+    bool optimizado = true,
+    int limite = 20,
+    int desde = 0,
+    String busqueda = '',
+  }) {
+    final uri = Uri.parse('$baseUrl/ideas').replace(
+      queryParameters: {
+        'optimized': '$optimizado',
+        'limit': '$limite',
+        'offset': '$desde',
+        if (busqueda.trim().isNotEmpty) 'q': busqueda.trim(),
+      },
+    );
     return _ejecutar(
-      () => _cliente.get(
-        Uri.parse('$baseUrl/ideas?optimized=$optimizado'),
-        headers: _cabeceras,
-      ),
+      () => _cliente.get(uri, headers: _cabeceras),
       (cuerpo) => (jsonDecode(cuerpo) as List<dynamic>)
           .map((e) => Idea.desdeJson(e as Map<String, dynamic>))
           .toList(),
@@ -117,10 +133,16 @@ class AtlasApi {
   }
 
   /// POST /ideas — crea una idea y devuelve la fila persistida en Postgres.
+  ///
+  /// [origen] distingue si el contenido se escribió a mano o si vino, en todo
+  /// o en parte, del dictado por voz (Taller Semana 14). Es el mismo campo
+  /// que ya devolvía el backend en el listado; hasta ahora el cliente solo lo
+  /// leía, nunca lo había escrito con un valor distinto de `'texto'`.
   Future<RespuestaApi<Idea>> crearIdea({
     required String titulo,
     required String contenido,
     List<String> etiquetas = const [],
+    String origen = 'texto',
   }) {
     return _ejecutar(
       () => _cliente.post(
@@ -129,7 +151,7 @@ class AtlasApi {
         body: jsonEncode({
           'titulo': titulo,
           'contenido': contenido,
-          'origen': 'texto',
+          'origen': origen,
           'etiquetas': etiquetas,
         }),
       ),
@@ -170,11 +192,90 @@ class AtlasApi {
   /// la operación se completó.
   Future<RespuestaApi<bool>> eliminarIdea(int id) {
     return _ejecutar(
-      () => _cliente.delete(
-        Uri.parse('$baseUrl/ideas/$id'),
+      () =>
+          _cliente.delete(Uri.parse('$baseUrl/ideas/$id'), headers: _cabeceras),
+      (_) => true,
+    );
+  }
+
+  // ------------------------------------------------ publicaciones con IA
+
+  /// POST /ideas/{id}/publicar — encola la generación con IA.
+  ///
+  /// El backend responde 202 al instante con el id del trabajo; la redacción
+  /// ocurre después, en el worker. Devuelve ese id para consultar su avance
+  /// con [consultarTrabajo].
+  Future<RespuestaApi<String>> publicarIdea(int id, RedSocial red) {
+    return _ejecutar(
+      () => _cliente.post(
+        Uri.parse('$baseUrl/ideas/$id/publicar'),
+        headers: _cabeceras,
+        body: jsonEncode({'red_social': red.valor}),
+      ),
+      (cuerpo) =>
+          (jsonDecode(cuerpo) as Map<String, dynamic>)['job_id'] as String,
+    );
+  }
+
+  /// GET /jobs/{id} — estado del trabajo de generación encolado.
+  Future<RespuestaApi<TrabajoIa>> consultarTrabajo(String jobId) {
+    return _ejecutar(
+      () =>
+          _cliente.get(Uri.parse('$baseUrl/jobs/$jobId'), headers: _cabeceras),
+      (cuerpo) =>
+          TrabajoIa.desdeJson(jsonDecode(cuerpo) as Map<String, dynamic>),
+    );
+  }
+
+  /// GET /ideas/{id}/publicaciones — textos generados, el más reciente primero.
+  Future<RespuestaApi<List<Publicacion>>> listarPublicaciones(int ideaId) {
+    return _ejecutar(
+      () => _cliente.get(
+        Uri.parse('$baseUrl/ideas/$ideaId/publicaciones'),
         headers: _cabeceras,
       ),
+      (cuerpo) => (jsonDecode(cuerpo) as List<dynamic>)
+          .map((e) => Publicacion.desdeJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  /// POST /publicaciones/{id}/metricas — registra el rendimiento actual de una
+  /// publicación. El backend invalida el caché del panel en la misma operación.
+  Future<RespuestaApi<bool>> registrarMetrica(
+    int publicacionId, {
+    required int likes,
+    required int comentarios,
+    required int compartidos,
+    required int alcance,
+  }) {
+    return _ejecutar(
+      () => _cliente.post(
+        Uri.parse('$baseUrl/publicaciones/$publicacionId/metricas'),
+        headers: _cabeceras,
+        body: jsonEncode({
+          'fuente': 'manual',
+          'likes': likes,
+          'comentarios': comentarios,
+          'compartidos': compartidos,
+          'alcance': alcance,
+        }),
+      ),
       (_) => true,
+    );
+  }
+
+  /// GET /publicaciones/{id}/metricas — evolución, del registro más antiguo al
+  /// más reciente.
+  Future<RespuestaApi<List<Metrica>>> historialMetricas(int publicacionId) {
+    return _ejecutar(
+      () => _cliente.get(
+        Uri.parse('$baseUrl/publicaciones/$publicacionId/metricas'),
+        headers: _cabeceras,
+      ),
+      (cuerpo) => (jsonDecode(cuerpo) as List<dynamic>)
+          .map((e) => Metrica.desdeJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 

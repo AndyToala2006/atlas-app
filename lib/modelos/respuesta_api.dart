@@ -18,6 +18,10 @@ class RespuestaApi<T> {
   String? get tiempoServidorMs => cabeceras['x-process-time-ms'];
   String? get consultasSql => cabeceras['x-query-count'];
   String? get cache => cabeceras['x-cache'];
+
+  /// Total de elementos que cumplen el filtro en el servidor (`X-Total-Count`),
+  /// no solo los de esta página. `null` si el endpoint no pagina.
+  int? get totalElementos => int.tryParse(cabeceras['x-total-count'] ?? '');
 }
 
 /// Error de comunicacion con la API, ya traducido a un mensaje entendible.

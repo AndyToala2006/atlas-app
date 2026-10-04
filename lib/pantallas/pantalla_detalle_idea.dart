@@ -5,6 +5,7 @@ import '../modelos/idea.dart';
 import '../rutas/rutas.dart';
 import '../tema/tema_atlas.dart';
 import '../widgets/aviso_error.dart';
+import '../widgets/seccion_publicaciones.dart';
 import '../widgets/tarjeta_idea.dart';
 
 /// Detalle de una idea y punto de entrada a su edición y su borrado.
@@ -277,6 +278,18 @@ class _PantallaDetalleIdeaState extends State<PantallaDetalleIdea> {
                   EtiquetaChip(texto: etiqueta),
               ],
             ),
+          const SizedBox(height: 24),
+
+          // Semana 15: la razón de ser de Atlas. La idea se convierte en una
+          // publicación redactada por la IA en el backend.
+          SeccionPublicaciones(
+            idea: _idea,
+            alActualizarIdea: (vigente) => setState(() {
+              _idea = vigente.copiaCon(
+                contenido: vigente.contenido ?? _idea.contenido,
+              );
+            }),
+          ),
           const SizedBox(height: 24),
 
           Text('Registro', style: tema.textTheme.titleMedium),

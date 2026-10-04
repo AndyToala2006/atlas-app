@@ -42,8 +42,30 @@ dependencies:
   # iOS) para guardar el JWT de la sesion. No se usa almacenamiento en claro.
   flutter_secure_storage: ^9.2.4
 
+  # Taller Semana 14: funcionalidades nativas del dispositivo.
+  #
+  # Consulta y solicitud de permisos (microfono, notificaciones), con los
+  # cuatro estados de la plataforma: concedido, denegado, denegado permanente
+  # y restringido.
+  permission_handler: ^13.0.2
+  # Dictado por voz: convierte el microfono en texto para el campo
+  # "Contenido" de una idea, sin salir del formulario.
+  speech_to_text: ^7.4.0
+  # Notificacion local cuando una idea pasa a "publicada" en el backend. No es
+  # notificacion push: no requiere servidor de mensajeria, solo el permiso del
+  # sistema operativo.
+  flutter_local_notifications: ^22.3.1
+  # Persistencia local no sensible: la preferencia de notificaciones y el
+  # ultimo estado conocido de cada idea (para detectar el cambio a
+  # "publicada"). No es el lugar del JWT: eso sigue en flutter_secure_storage.
+  shared_preferences: ^2.5.5
+
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  # Prueba de punta a punta en el dispositivo contra el backend real
+  # (integration_test/flujo_completo_test.dart).
+  integration_test:
     sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
@@ -94,3 +116,12 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# permission_handler_android 14.1.0 (la que resuelve permission_handler
+# ^13.0.2 por defecto) trae un android/build.gradle.kts que exige AGP 9 y
+# Kotlin 2.3.20; con el AGP 8.11.1 / Kotlin 2.2.20 de este proyecto,
+# `flutter build apk` falla al compilar ese modulo con "Unresolved reference:
+# compilerOptions". Se fija la ultima version publicada antes de ese cambio de
+# requisitos, que si compila con la cadena de herramientas actual.
+dependency_overrides:
+  permission_handler_android: 13.0.1

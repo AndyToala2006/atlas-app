@@ -1,0 +1,180 @@
+====================================================================
+GUION DEL VIDEO - TALLER SEMANA 14
+Incorporacion de funcionalidades nativas: dictado por voz y
+notificaciones locales
+====================================================================
+
+DURACION MAXIMA: 5 MINUTOS. Los bloques suman ~4:10, hay margen.
+Si te alargas, recorta primero el Bloque 6 (es una sola frase) y
+despues el cierre.
+
+--------------------------------------------------------------------
+ANTES DE GRABAR - REVISA ESTO PRIMERO
+--------------------------------------------------------------------
+- Backend levantado: docker compose up -d (en atlas-backend)
+- Telefono conectado: adb devices debe listarlo como "device"
+- App reinstalada con el codigo actual: .\run.ps1
+- flutter test en verde (34 pruebas)
+- Permisos del telefono reiniciados: Ajustes > Apps > Atlas >
+  Permisos > Microfono y Notificaciones en "Preguntar cada vez"
+- INICIA SESION ANTES DE GRABAR, FUERA DE CAMARA:
+    Correo:      demo@atlas.app
+    Contrasena:  atlas123
+  (cuenta demo de seed.py, no es secreta; si corriste run.ps1 sin
+  -DemoEmail/-DemoPassword no aparece el boton de relleno
+  automatico, asi que escribela a mano en el formulario de login)
+  El login NO se repite en el video: ya se demostro antes.
+- Terminal con acceso a la base de datos lista (psql), para poder
+  cambiar el estado de una idea a mano durante el Bloque 5
+- Decide como vas a forzar cada estado:
+    * Denegado simple = pulsar "Denegar" una vez
+    * Denegado permanente = denegar DOS veces seguidas
+- Pantalla del telefono visible (scrcpy ya instalado)
+- ENSAYA UNA VEZ SIN GRABAR antes de la toma final
+
+====================================================================
+BLOQUE 0 - PRESENTACION Y SELECCION            (25 s)
+====================================================================
+[Hablas a camara, sin tocar el telefono todavia]
+
+"Soy Andy Toala, Semana 14 de Aplicaciones Moviles, proyecto Atlas.
+Hasta la semana pasada la aplicacion solo consumia mi backend; hoy
+le agrego dos capacidades del telefono: dictado por voz, esencial
+porque Atlas se presenta desde la Semana 9 como una app que captura
+ideas por texto o por audio y hasta ahora solo hacia la mitad; y un
+aviso local cuando una idea queda publicada, opcional, para no
+tener que entrar a comprobarlo a mano. Elegi permission_handler,
+speech_to_text, flutter_local_notifications y shared_preferences
+con seis criterios de verificacion que detallo en la seccion 11.2
+del README."
+
+====================================================================
+BLOQUE 1 - DECLARACIONES DE PERMISOS           (20 s)
+====================================================================
+[En pantalla, rapido: AndroidManifest.xml y luego Info.plist]
+
+"En Android declaro RECORD_AUDIO y POST_NOTIFICATIONS, sin permisos
+de galeria ni almacenamiento: no hacen falta. En iOS, las cadenas
+de proposito del microfono y del reconocedor de voz explican el uso
+concreto; sin ellas iOS cierra la app al pedir el permiso, no
+muestra un error."
+
+====================================================================
+BLOQUE 2 - DICTADO POR VOZ: PERMISO CONCEDIDO  (45 s)
+====================================================================
+[Entra a "Nueva idea", escribe el titulo, pulsa el icono de
+microfono]
+
+"Antes del dialogo del sistema, mi propia aplicacion explica para
+que se usa el microfono: es la explicacion previa que exige el
+taller."
+
+[Pulsa "Continuar". Aparece el dialogo NATIVO. Concede el permiso
+y dicta una frase]
+
+"Concedo el permiso del sistema, y en cuanto hablo, el texto
+aparece en el campo."
+
+[Detiene el dictado, guarda la idea, abre su detalle]
+
+"Guardo la idea, y en el detalle el origen aparece como 'audio':
+POST /ideas ya viaja con ese valor en vez de 'texto'."
+
+====================================================================
+BLOQUE 3 - DICTADO POR VOZ: PERMISO DENEGADO   (15 s)
+====================================================================
+[Nueva idea, pulsa el microfono, y en el dialogo nativo pulsa
+"Denegar"]
+
+"Si deniego, la aplicacion no se rompe: avisa que puedo escribir a
+mano, y el resto del formulario sigue funcionando normal."
+
+[Escribe el contenido a mano y guarda]
+
+====================================================================
+BLOQUE 4 - DICTADO: DENEGACION PERMANENTE + AJUSTES  (40 s)
+====================================================================
+[Pulsa el microfono y deniega UNA SEGUNDA VEZ]
+
+"Deniego una segunda vez: a partir de aqui el sistema ya no vuelve
+a preguntar, es la denegacion permanente."
+
+[Pulsa el microfono otra vez]
+
+"Mi aplicacion lo detecta y, en vez de insistir, ofrece el atajo
+directo a los ajustes del sistema."
+
+[Pulsa "Abrir ajustes", concede el permiso desde ahi, vuelve a la
+app y pulsa el microfono de nuevo]
+
+"Concedo desde ajustes, vuelvo, y ya dicta con normalidad otra
+vez."
+
+====================================================================
+BLOQUE 5 - NOTIFICACIONES: ACTIVAR Y VERLO LLEGAR   (60 s)
+====================================================================
+[Ve a "Perfil", activa el interruptor "Avisarme cuando una idea se
+publique"]
+
+"Otra vez mi explicacion antes del permiso nativo."
+
+[Pulsa "Continuar", concede el permiso]
+
+"El interruptor se enciende; la preferencia queda en
+shared_preferences, no en el almacen cifrado del token, porque no
+es un dato sensible."
+
+[Ve a "Ideas", senala una idea en estado "procesando"]
+
+"Esta idea la esta procesando mi backend de verdad. Sin un boton
+que lo acelere, simulo que termina cambiando su estado en la base
+de datos."
+
+[Cambia a la terminal - AJUSTA usuario, base de datos e id a los
+tuyos]
+
+    docker compose exec db psql -U <tu-usuario> -d <tu-base> -c
+    "UPDATE ideas SET estado='publicada' WHERE id = <id-de-la-idea>;"
+
+[Vuelve al telefono, refresca la lista]
+
+"Refresco: la aplicacion compara el estado nuevo contra el ultimo
+guardado, ve la transicion a 'publicada', y..."
+
+[Muestra la notificacion en la bandeja del sistema]
+
+"...ahi esta. Es local, no push: no paso por ningun servidor de
+mensajeria."
+
+====================================================================
+BLOQUE 6 - NOTIFICACIONES: DENEGACION PERMANENTE   (15 s)
+====================================================================
+[Solo la frase; no hace falta repetir la demostracion completa si
+el tiempo aprieta]
+
+"El mismo mecanismo que con el microfono: si deniego dos veces el
+permiso de notificaciones, la aplicacion ofrece el atajo a ajustes
+en vez de insistir."
+
+====================================================================
+CIERRE                                          (30 s)
+====================================================================
+"En resumen: dos capacidades nativas, con sus cuatro estados de
+permiso manejados y degradacion explicita en cada uno -incluida la
+denegacion permanente con salida a ajustes-. Todo se integra con la
+persistencia local y con mi propio backend, sin permisos de acceso
+amplio y con el nivel de API objetivo ya en Android 16. El detalle
+completo, la matriz de degradacion y las 34 pruebas automatizadas
+estan en la seccion 11 del README. Gracias."
+
+====================================================================
+DESPUES DE GRABAR
+====================================================================
+- Subir el video a YouTube (no listado) o a Drive
+- Verificar permisos: abrirlo en incognito, debe verse sin login
+- Confirmar que el repositorio atlas-app es accesible al docente
+- Comprobar que el video coincide con el codigo publicado (push
+  antes de entregar)
+- Completar la columna "Verificado en el telefono" de la tabla de
+  casos de prueba (README seccion 11.8)
+- Subir a Moodle: enlace del video + enlace del repositorio

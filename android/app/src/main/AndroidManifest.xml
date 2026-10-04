@@ -3,6 +3,22 @@
     <!-- Requerido para consumir la API de Atlas (atlas-backend). -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Taller Semana 14: funcionalidades nativas del dispositivo.
+
+         RECORD_AUDIO: dictado por voz del contenido de una idea
+         (`servicios/voz_servicio.dart`). Es un permiso "peligroso": el
+         sistema pide confirmacion en tiempo de ejecucion, y la aplicacion lo
+         solicita justo al pulsar el microfono, nunca al arrancar.
+
+         POST_NOTIFICATIONS: aviso local de "idea publicada"
+         (`servicios/notificaciones_servicio.dart`). Solo es un permiso en
+         tiempo de ejecucion desde Android 13 (API 33); en versiones
+         anteriores el sistema lo concede solo con declararlo aqui, sin
+         dialogo. No se declara ningun permiso de galeria ni de
+         almacenamiento: ninguna de las dos funcionalidades los necesita. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <application
         android:label="Atlas"
         android:name="${applicationName}"
@@ -45,6 +61,13 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Requerido por `speech_to_text` desde targetSdkVersion 30: sin esta
+             declaracion, la regla de visibilidad de paquetes de Android le
+             oculta al plugin el motor de reconocimiento de voz del sistema y
+             `hayReconocimientoDisponible()` devolvería siempre `false`. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>

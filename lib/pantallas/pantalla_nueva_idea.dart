@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../estado/ambito_atlas.dart';
+import '../modelos/estado_permiso.dart';
 import '../modelos/idea.dart';
+import '../servicios/voz_servicio.dart';
 import '../utiles/validadores.dart';
 import '../widgets/aviso_error.dart';
 import '../widgets/campo_texto.dart';
@@ -40,14 +42,34 @@ class _PantallaNuevaIdeaState extends State<PantallaNuevaIdea> {
   late final TextEditingController _titulo;
   late final TextEditingController _contenido;
   late final TextEditingController _etiquetas;
+  late final VozServicio _voz;
 
   AutovalidateMode _autovalidar = AutovalidateMode.disabled;
+
+  // --------------------------------------------------- dictado por voz (S14)
+
+  /// `true` mientras el micrófono está escuchando. Controla el icono, el
+  /// texto de ayuda del campo y si se puede volver a pulsar "Guardar".
+  bool _escuchando = false;
+
+  /// `true` si el contenido final incluyó, en todo o en parte, texto dictado.
+  /// Decide el `origen` (`'texto'` o `'audio'`) que se envía al crear la idea;
+  /// en edición no se usa, porque `PATCH /ideas/{id}` no cambia el origen.
+  bool _origenAudio = false;
+
+  /// Lo que había en el campo "Contenido" antes de tocar el micrófono. El
+  /// motor de reconocimiento entrega, en cada `onResult`, el texto COMPLETO
+  /// de la sesión de escucha en curso, no solo lo nuevo; hay que recomponerlo
+  /// sobre lo que ya estaba escrito, o cada palabra reconocida borraría la
+  /// anterior.
+  String _contenidoAntesDeEscuchar = '';
 
   bool get _esEdicion => widget.ideaAEditar != null;
 
   @override
   void initState() {
     super.initState();
+    _voz = AmbitoAtlas.leer(context).voz;
     final idea = widget.ideaAEditar;
     if (idea != null) {
       // Edición: los campos arrancan con lo que hay hoy en la base de datos.
@@ -68,10 +90,178 @@ class _PantallaNuevaIdeaState extends State<PantallaNuevaIdea> {
 
   @override
   void dispose() {
+    // La escucha no debe seguir corriendo -ni el motor nativo ocupado- una
+    // vez que la pantalla que la pidió ya no existe.
+    if (_escuchando) _voz.cancelar();
     _titulo.dispose();
     _contenido.dispose();
     _etiquetas.dispose();
     super.dispose();
+  }
+
+  // --------------------------------------------------- dictado por voz (S14)
+
+  /// Alterna entre escuchar y detener. Antes de la primera escucha resuelve,
+  /// en orden, los tres bloqueos posibles: permiso denegado (con explicación
+  /// previa, tal como exige el taller), permiso en denegación permanente o
+  /// restringido (con salida a ajustes) y, ya con permiso, la disponibilidad
+  /// real del reconocedor del dispositivo.
+  Future<void> _alternarDictado() async {
+    if (_escuchando) {
+      await _voz.detener();
+      if (mounted) setState(() => _escuchando = false);
+      return;
+    }
+
+    var estado = await _voz.estadoPermiso();
+    if (!mounted) return;
+
+    if (!estado.concedidoOk) {
+      if (estado.requiereAjustes) {
+        await _ofrecerAbrirAjustes(estado);
+        return;
+      }
+
+      final continuar = await _confirmarUsoDeMicrofono();
+      if (!mounted || continuar != true) return;
+
+      estado = await _voz.solicitarPermiso();
+      if (!mounted) return;
+
+      if (!estado.concedidoOk) {
+        if (estado.requiereAjustes) {
+          await _ofrecerAbrirAjustes(estado);
+        } else {
+          _mostrarAviso(
+            'Sin permiso de micrófono no se puede dictar. Puedes escribir '
+            'tu idea a mano.',
+          );
+        }
+        return;
+      }
+    }
+
+    final disponible = await _voz.hayReconocimientoDisponible();
+    if (!mounted) return;
+    if (!disponible) {
+      // El permiso está concedido pero el SERVICIO de reconocimiento no
+      // responde (por ejemplo, sin Google app en un Android sin Play
+      // Services): es la condición de indisponibilidad distinta del permiso
+      // que la guía del taller pide distinguir.
+      _mostrarAviso(
+        'El reconocimiento de voz no está disponible en este dispositivo. '
+        'Puedes escribir tu idea a mano.',
+      );
+      return;
+    }
+
+    _contenidoAntesDeEscuchar = _contenido.text;
+    setState(() => _escuchando = true);
+
+    await _voz.escuchar(
+      alReconocerParcial: _incorporarTextoDictado,
+      alFinalizar: (texto) {
+        _incorporarTextoDictado(texto);
+        if (mounted) setState(() => _escuchando = false);
+      },
+      alFallar: () {
+        if (!mounted) return;
+        setState(() => _escuchando = false);
+        _mostrarAviso(
+          'No se pudo escuchar el micrófono. Intenta de nuevo o escribe tu '
+          'idea a mano.',
+        );
+      },
+    );
+  }
+
+  void _incorporarTextoDictado(String texto) {
+    if (texto.isEmpty) return;
+    final combinado = [
+      if (_contenidoAntesDeEscuchar.isNotEmpty) _contenidoAntesDeEscuchar,
+      texto,
+    ].join(' ');
+    _contenido.value = TextEditingValue(
+      text: combinado,
+      selection: TextSelection.collapsed(offset: combinado.length),
+    );
+    _origenAudio = true;
+    if (!_esEdicion) {
+      AmbitoAtlas.ideasDe(context).guardarBorrador(contenido: combinado);
+    }
+  }
+
+  /// Explica, ANTES de pedir el permiso, para qué se va a usar el micrófono.
+  /// Es la explicación previa que exige el taller: el diálogo del sistema
+  /// operativo no da espacio para justificarlo, así que este va primero.
+  Future<bool?> _confirmarUsoDeMicrofono() {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogo) => AlertDialog(
+        icon: const Icon(Icons.mic_none),
+        title: const Text('Usar el micrófono'),
+        content: const Text(
+          'Atlas va a pedir permiso de micrófono para dictar el contenido de '
+          'esta idea. Solo se activa mientras hablas y se puede detener en '
+          'cualquier momento tocando el mismo botón.',
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogo).pop(false),
+            child: const Text('Ahora no'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogo).pop(true),
+            child: const Text('Continuar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Denegación permanente o restricción del sistema: pedir el permiso de
+  /// nuevo no haría nada, así que la única salida es ir a los ajustes.
+  Future<void> _ofrecerAbrirAjustes(EstadoPermiso estado) async {
+    if (estado == EstadoPermiso.restringido) {
+      _mostrarAviso(
+        'El micrófono está restringido en este dispositivo por una política '
+        'del sistema. Puedes escribir tu idea a mano.',
+      );
+      return;
+    }
+
+    final abrir = await showDialog<bool>(
+      context: context,
+      builder: (dialogo) => AlertDialog(
+        icon: Icon(Icons.mic_off, color: Theme.of(dialogo).colorScheme.error),
+        title: const Text('Micrófono bloqueado'),
+        content: const Text(
+          'Bloqueaste el permiso de micrófono y el sistema ya no vuelve a '
+          'preguntar. Para dictar tu idea, actívalo desde los ajustes de la '
+          'aplicación. Mientras tanto puedes escribirla a mano.',
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogo).pop(false),
+            child: const Text('Ahora no'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogo).pop(true),
+            child: const Text('Abrir ajustes'),
+          ),
+        ],
+      ),
+    );
+
+    if (abrir == true) await _voz.abrirAjustesDeLaApp();
+  }
+
+  void _mostrarAviso(String mensaje) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(mensaje)));
   }
 
   Future<void> _guardar() async {
@@ -108,6 +298,7 @@ class _PantallaNuevaIdeaState extends State<PantallaNuevaIdea> {
       titulo: _titulo.text,
       contenido: _contenido.text,
       etiquetas: etiquetas,
+      origen: _origenAudio ? 'audio' : 'texto',
     );
     if (!mounted || idea == null) return;
 
@@ -122,6 +313,7 @@ class _PantallaNuevaIdeaState extends State<PantallaNuevaIdea> {
   @override
   Widget build(BuildContext context) {
     final controlador = AmbitoAtlas.ideasDe(context);
+    final tema = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -173,11 +365,21 @@ class _PantallaNuevaIdeaState extends State<PantallaNuevaIdea> {
                 CampoTexto(
                   controlador: _contenido,
                   etiqueta: 'Contenido',
-                  ayuda:
-                      'Es el texto que usará la IA para generar la publicación.',
+                  ayuda: _escuchando
+                      ? 'Escuchando… toca el micrófono para detener.'
+                      : 'Es el texto que usará la IA para generar la '
+                          'publicación. Puedes escribirlo o dictarlo.',
                   lineas: 5,
                   habilitado: !ocupado,
                   validador: Validadores.contenido,
+                  sufijo: IconButton(
+                    key: const Key('boton-dictar-idea'),
+                    tooltip: _escuchando ? 'Detener dictado' : 'Dictar por voz',
+                    isSelected: _escuchando,
+                    icon: Icon(_escuchando ? Icons.mic : Icons.mic_none),
+                    color: _escuchando ? tema.colorScheme.error : null,
+                    onPressed: ocupado ? null : _alternarDictado,
+                  ),
                   alCambiar: _esEdicion
                       ? null
                       : (v) => controlador.guardarBorrador(contenido: v),

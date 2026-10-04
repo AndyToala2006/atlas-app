@@ -2,17 +2,112 @@ import 'package:flutter/material.dart';
 
 import '../config/app_config.dart';
 import '../estado/ambito_atlas.dart';
+import '../modelos/estado_permiso.dart';
 import '../rutas/rutas.dart';
 import '../tema/tema_atlas.dart';
 import '../widgets/marca_atlas.dart';
 
-/// Perfil del usuario en sesión y cierre de sesión.
+/// Perfil del usuario en sesión, cierre de sesión y preferencia de avisos.
 ///
 /// Todo lo que se ve aquí sale del controlador de sesión: esta pantalla no
 /// vuelve a llamar a `GET /auth/me`, porque el perfil se cargó una sola vez al
-/// autenticar y sigue en el estado compartido.
+/// autenticar y sigue en el estado compartido. El interruptor de
+/// notificaciones (Taller Semana 14) sí depende de un segundo controlador
+/// -las ideas-, porque es ahí donde vive la comparación de estados que decide
+/// cuándo avisar.
 class PantallaPerfil extends StatelessWidget {
   const PantallaPerfil({super.key});
+
+  /// Explica, ANTES de pedir el permiso, para qué sirve el aviso. Si el
+  /// usuario cancela aquí, ni siquiera se llega a mostrar el diálogo nativo:
+  /// es la explicación previa que exige el taller.
+  Future<void> _activarNotificaciones(BuildContext context) async {
+    final continuar = await showDialog<bool>(
+      context: context,
+      builder: (dialogo) => AlertDialog(
+        icon: const Icon(Icons.notifications_active_outlined),
+        title: const Text('Avisar cuando una idea se publique'),
+        content: const Text(
+          'Atlas va a pedir permiso de notificaciones para avisarte, con una '
+          'notificación local del propio teléfono, en cuanto una idea que '
+          'capturaste termine de procesarse en el backend y tenga una '
+          'publicación lista. No es necesario para usar la aplicación.',
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogo).pop(false),
+            child: const Text('Ahora no'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogo).pop(true),
+            child: const Text('Continuar'),
+          ),
+        ],
+      ),
+    );
+    if (continuar != true || !context.mounted) return;
+
+    final ideas = AmbitoAtlas.ideasDe(context);
+    final estado = await ideas.activarNotificaciones();
+    if (!context.mounted || estado.concedidoOk) return;
+
+    if (estado == EstadoPermiso.restringido) {
+      // Una restricción de política (control parental, MDM) no se revierte
+      // desde los ajustes de la aplicación: ofrecerlos sería un callejón sin
+      // salida disfrazado de solución.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Las notificaciones están restringidas en este dispositivo por '
+            'una política del sistema. Puedes revisar el estado de tus '
+            'ideas entrando a mirarlas.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (estado.requiereAjustes) {
+      final abrir = await showDialog<bool>(
+        context: context,
+        builder: (dialogo) => AlertDialog(
+          icon: Icon(
+            Icons.notifications_off_outlined,
+            color: Theme.of(dialogo).colorScheme.error,
+          ),
+          title: const Text('Notificaciones bloqueadas'),
+          content: const Text(
+            'Bloqueaste el permiso de notificaciones y el sistema ya no '
+            'vuelve a preguntar. Para recibir el aviso, actívalo desde los '
+            'ajustes de la aplicación. Mientras tanto puedes revisar el '
+            'estado de tus ideas entrando a mirarlas.',
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogo).pop(false),
+              child: const Text('Ahora no'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogo).pop(true),
+              child: const Text('Abrir ajustes'),
+            ),
+          ],
+        ),
+      );
+      if (abrir == true) await ideas.abrirAjustesDeNotificaciones();
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Sin permiso de notificaciones no se puede avisar. Puedes '
+            'revisar el estado de tus ideas entrando a mirarlas.',
+          ),
+        ),
+      );
+    }
+  }
 
   Future<void> _cerrarSesion(BuildContext context) async {
     final confirmado = await showDialog<bool>(
@@ -51,16 +146,21 @@ class PantallaPerfil extends StatelessWidget {
     Navigator.of(context).pushNamedAndRemoveUntil(Rutas.login, (_) => false);
     ambito.ideas.limpiar();
     ambito.panel.limpiar();
+    ambito.publicaciones.limpiar();
     await ambito.sesion.cerrarSesion();
   }
 
   @override
   Widget build(BuildContext context) {
     final sesion = AmbitoAtlas.sesionDe(context);
+    final ideas = AmbitoAtlas.ideasDe(context);
     final tema = Theme.of(context);
 
     return ListenableBuilder(
-      listenable: sesion,
+      // Se escuchan los dos controladores: el perfil sale de la sesión, pero
+      // el interruptor de notificaciones vive en `ControladorIdeas`, que es
+      // donde se decide cuándo avisar de una idea publicada.
+      listenable: Listenable.merge([sesion, ideas]),
       builder: (context, _) {
         final usuario = sesion.usuario;
         if (usuario == null) return const SizedBox.shrink();
@@ -158,6 +258,27 @@ class PantallaPerfil extends StatelessWidget {
               texto: 'El token se guarda cifrado por el sistema operativo '
                   '(Keystore en Android, Keychain en iOS). Nunca se escribe en '
                   'almacenamiento en claro.',
+            ),
+            const SizedBox(height: 24),
+
+            Text('Notificaciones', style: tema.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            Card(
+              child: SwitchListTile(
+                key: const Key('interruptor-notificaciones'),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                secondary: const Icon(Icons.notifications_outlined),
+                title: const Text('Avisarme cuando una idea se publique'),
+                subtitle: const Text(
+                  'Notificación local del teléfono; no depende de un servidor '
+                  'de mensajería ni de que la aplicación esté abierta.',
+                ),
+                value: ideas.notificacionesActivadas,
+                onChanged: (activar) => activar
+                    ? _activarNotificaciones(context)
+                    : ideas.desactivarNotificaciones(),
+              ),
             ),
             const SizedBox(height: 24),
 

@@ -13,10 +13,14 @@ import 'dart:convert';
 
 import 'package:atlas_app/config/app_config.dart';
 import 'package:atlas_app/main.dart';
+import 'package:atlas_app/modelos/estado_permiso.dart';
 import 'package:atlas_app/modelos/idea.dart';
 import 'package:atlas_app/rutas/rutas.dart';
 import 'package:atlas_app/servicios/almacen_sesion.dart';
 import 'package:atlas_app/servicios/atlas_api.dart';
+import 'package:atlas_app/servicios/notificaciones_servicio.dart';
+import 'package:atlas_app/servicios/preferencias_locales.dart';
+import 'package:atlas_app/servicios/voz_servicio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -50,17 +54,34 @@ late Map<String, int> llamadas;
 /// desaparece de verdad.
 late Map<int, Map<String, dynamic>> ideasDelBackend;
 
+/// Publicaciones del backend simulado por id de idea, la mas reciente primero,
+/// como las devuelve `GET /ideas/{id}/publicaciones`.
+late Map<int, List<Map<String, dynamic>>> publicacionesDelBackend;
+
+/// Registros de rendimiento por id de publicacion, en orden cronologico, como
+/// los guarda `POST /publicaciones/{id}/metricas`.
+late Map<int, List<Map<String, dynamic>>> metricasDelBackend;
+
+/// Ultimo cuerpo recibido por `POST /auth/register`, para comprobar que el
+/// tono elegido en el formulario viaja al backend.
+Map<String, dynamic>? ultimoRegistro;
+
 /// Almacen de la sesion de la prueba en curso, para inspeccionar el token.
 late AlmacenSesionEnMemoria almacen;
 
 /// Backend simulado. [passwordValida] es la unica clave que acepta el login;
 /// [detalleFalla] hace que `GET /ideas/{id}` responda 404 para poder recorrer
-/// el camino de error de la pantalla de detalle.
+/// el camino de error de la pantalla de detalle; [iaFalla] hace que el trabajo
+/// de generacion termine en `error`, como cuando OpenRouter rechaza la key.
 http.Client _backendFalso({
   String passwordValida = 'claveDePrueba1',
   bool detalleFalla = false,
+  bool iaFalla = false,
+  int ideasExtra = 0,
 }) {
   llamadas = <String, int>{};
+  metricasDelBackend = {};
+  ultimoRegistro = null;
   ideasDelBackend = {
     7: {
       'id': 7,
@@ -73,7 +94,53 @@ http.Client _backendFalso({
       'contenido': _contenidoIdeaSembrada,
     },
   };
+  // Ideas adicionales para ejercitar la paginacion. Llevan ids altos para que,
+  // ordenadas como en el backend real (la mas reciente primero), queden antes
+  // que la idea sembrada.
+  for (var i = 0; i < ideasExtra; i++) {
+    final id = 100 + i;
+    ideasDelBackend[id] = {
+      'id': id,
+      'titulo': 'Idea de relleno $i',
+      'estado': 'borrador',
+      'origen': 'texto',
+      'etiquetas': <String>[],
+      'num_publicaciones': 0,
+      'creado_en': '2026-09-05T10:00:00Z',
+      'contenido': 'Contenido de relleno $i',
+    };
+  }
   var siguienteId = 8;
+  var siguienteMetricaId = 1;
+  publicacionesDelBackend = {
+    7: [
+      {
+        'id': 2,
+        'idea_id': 7,
+        'red_social': 'linkedin',
+        'contenido_generado': 'Tres lecciones sobre optimizar APIs. #backend',
+        'tono': 'profesional',
+        'estado': 'generada',
+        'modelo_ia': 'anthropic/claude-haiku-4.5',
+        'creado_en': '2026-09-02T10:00:00Z',
+      },
+      {
+        'id': 1,
+        'idea_id': 7,
+        'red_social': 'instagram',
+        'contenido_generado': 'Te cuento algo sobre indices. #atlas',
+        'tono': 'profesional',
+        'estado': 'generada',
+        'modelo_ia': 'atlas-sim-1',
+        'creado_en': '2026-09-01T11:00:00Z',
+      },
+    ],
+  };
+  var siguientePublicacionId = 3;
+
+  // Trabajos de generacion: cada uno avanza un paso por consulta, igual que el
+  // worker real: queued -> processing -> done (o error).
+  final trabajos = <String, Map<String, dynamic>>{};
 
   return MockClient((peticion) async {
     final ruta = peticion.url.path;
@@ -86,9 +153,19 @@ http.Client _backendFalso({
     // `/ideas/{id}` y el id se guarda aparte, que es exactamente lo que hace
     // el enrutador de FastAPI antes de entregar el parametro al endpoint.
     final segmentos = peticion.url.pathSegments;
-    final esRutaDeIdea = segmentos.length == 2 && segmentos.first == 'ideas';
+    final esRutaDeIdea = segmentos.length >= 2 && segmentos.first == 'ideas';
     final idEnRuta = esRutaDeIdea ? int.tryParse(segmentos[1]) : null;
-    final patron = esRutaDeIdea ? '/ideas/{id}' : ruta;
+    final esRutaDeJob = segmentos.length == 2 && segmentos.first == 'jobs';
+    final esRutaDeMetricas =
+        segmentos.length == 3 && segmentos.first == 'publicaciones';
+    final idPublicacion = esRutaDeMetricas ? int.tryParse(segmentos[1]) : null;
+    final patron = esRutaDeIdea
+        ? '/ideas/{id}${segmentos.length == 3 ? '/${segmentos[2]}' : ''}'
+        : esRutaDeJob
+        ? '/jobs/{id}'
+        : esRutaDeMetricas
+        ? '/publicaciones/{id}/metricas'
+        : ruta;
 
     http.Response json(Object cuerpo, [int codigo = 200]) => http.Response(
           jsonEncode(cuerpo),
@@ -120,6 +197,7 @@ http.Client _backendFalso({
 
       case 'POST /auth/register':
         final cuerpo = jsonDecode(peticion.body) as Map<String, dynamic>;
+        ultimoRegistro = cuerpo;
         if (cuerpo['email'] == 'repetido@atlas.app') {
           return json({'detail': 'El email ya está registrado'}, 409);
         }
@@ -136,9 +214,36 @@ http.Client _backendFalso({
         return json({'id': 1, 'email': 'demo@atlas.app', 'nombre': 'Andy Toala'});
 
       case 'GET /ideas':
-        return json([
-          for (final idea in ideasDelBackend.values) ligera(idea),
-        ]);
+        // Igual que el backend: filtro `q` sobre titulo y contenido, la mas
+        // reciente primero, `limit`/`offset` y el total en `X-Total-Count`.
+        final parametros = peticion.url.queryParameters;
+        final q = (parametros['q'] ?? '').toLowerCase();
+        final coincidentes =
+            ideasDelBackend.values
+                .where(
+                  (idea) =>
+                      q.isEmpty ||
+                      '${idea['titulo']} ${idea['contenido']}'
+                          .toLowerCase()
+                          .contains(q),
+                )
+                .toList()
+              ..sort((a, b) => (b['id'] as int).compareTo(a['id'] as int));
+        final desde = int.tryParse(parametros['offset'] ?? '') ?? 0;
+        final limite = int.tryParse(parametros['limit'] ?? '') ?? 20;
+        return http.Response(
+          jsonEncode([
+            for (final idea in coincidentes.skip(desde).take(limite))
+              ligera(idea),
+          ]),
+          200,
+          headers: {
+            'content-type': 'application/json',
+            'x-process-time-ms': '4.2',
+            'x-query-count': '3',
+            'x-total-count': '${coincidentes.length}',
+          },
+        );
 
       case 'POST /ideas':
         final datos = jsonDecode(peticion.body) as Map<String, dynamic>;
@@ -179,6 +284,85 @@ http.Client _backendFalso({
         // 204 sin cuerpo, igual que FastAPI con `response_class=Response`.
         return http.Response('', 204, headers: {'x-process-time-ms': '1.1'});
 
+      case 'POST /ideas/{id}/publicar':
+        final idea = ideasDelBackend[idEnRuta];
+        if (idea == null) return noEncontrada();
+        final red = (jsonDecode(peticion.body) as Map<String, dynamic>)['red_social'];
+        final jobId = 'job-${trabajos.length + 1}';
+        trabajos[jobId] = {
+          'id': jobId,
+          'idea_id': idea['id'],
+          'estado': 'queued',
+          'red_social': red,
+          'resultado_publicacion_id': null,
+          'error': null,
+        };
+        idea['estado'] = 'procesando';
+        return json(
+          {'job_id': jobId, 'estado': 'queued', 'modo': 'asincrono'},
+          202,
+        );
+
+      case 'GET /jobs/{id}':
+        final trabajo = trabajos[segmentos[1]];
+        if (trabajo == null) return json({'detail': 'Job no encontrado'}, 404);
+        final idea = ideasDelBackend[trabajo['idea_id']]!;
+        switch (trabajo['estado']) {
+          case 'queued':
+            trabajo['estado'] = 'processing';
+          case 'processing' when iaFalla:
+            trabajo['estado'] = 'error';
+            trabajo['error'] =
+                'La API key de OpenRouter no es válida (revisa OPENROUTER_API_KEY).';
+            idea['estado'] = 'borrador';
+          case 'processing':
+            final nueva = {
+              'id': siguientePublicacionId++,
+              'idea_id': idea['id'],
+              'red_social': trabajo['red_social'],
+              'contenido_generado':
+                  'Post para ${trabajo['red_social']}: ${idea['titulo']}',
+              'tono': 'profesional',
+              'estado': 'generada',
+              'modelo_ia': 'anthropic/claude-haiku-4.5',
+              'creado_en': '2026-09-08T12:00:00Z',
+            };
+            (publicacionesDelBackend[idea['id']] ??= []).insert(0, nueva);
+            idea['num_publicaciones'] = (idea['num_publicaciones'] as int) + 1;
+            idea['estado'] = 'publicada';
+            trabajo['estado'] = 'done';
+            trabajo['resultado_publicacion_id'] = nueva['id'];
+        }
+        return json({...trabajo}..remove('red_social'));
+
+      case 'GET /ideas/{id}/publicaciones':
+        if (!ideasDelBackend.containsKey(idEnRuta)) return noEncontrada();
+        return json([
+          for (final pub in publicacionesDelBackend[idEnRuta] ?? const [])
+            {
+              ...pub,
+              'ultima_metrica': metricasDelBackend[pub['id']]?.last,
+              'num_metricas': metricasDelBackend[pub['id']]?.length ?? 0,
+            },
+        ]);
+
+      case 'POST /publicaciones/{id}/metricas':
+        final cuerpo = jsonDecode(peticion.body) as Map<String, dynamic>;
+        final registro = <String, dynamic>{
+          'id': siguienteMetricaId++,
+          'fuente': cuerpo['fuente'],
+          'likes': cuerpo['likes'],
+          'comentarios': cuerpo['comentarios'],
+          'compartidos': cuerpo['compartidos'],
+          'alcance': cuerpo['alcance'],
+          'fecha': '2026-09-10T18:0$siguienteMetricaId:00Z',
+        };
+        (metricasDelBackend[idPublicacion!] ??= []).add(registro);
+        return json({'ok': true, 'cache': 'invalidado', 'id': registro['id']}, 201);
+
+      case 'GET /publicaciones/{id}/metricas':
+        return json(metricasDelBackend[idPublicacion] ?? const []);
+
       case 'GET /dashboard/metricas':
         return json({
           'usuario_id': 1,
@@ -206,6 +390,11 @@ Widget _app({
   String passwordValida = 'claveDePrueba1',
   String? tokenGuardado,
   bool detalleFalla = false,
+  bool iaFalla = false,
+  int ideasExtra = 0,
+  VozServicio? voz,
+  NotificacionesServicio? notificaciones,
+  PreferenciasLocales? preferencias,
 }) {
   almacen = AlmacenSesionEnMemoria(tokenInicial: tokenGuardado);
   return AtlasApp(
@@ -213,10 +402,20 @@ Widget _app({
       cliente: _backendFalso(
         passwordValida: passwordValida,
         detalleFalla: detalleFalla,
+        iaFalla: iaFalla,
+        ideasExtra: ideasExtra,
       ),
       baseUrl: _baseUrl,
     ),
     almacen: almacen,
+    // Los tres servicios nativos de la Semana 14 se sustituyen por dobles en
+    // memoria: no hay canal nativo de `speech_to_text`,
+    // `flutter_local_notifications` ni `shared_preferences` en el entorno de
+    // `flutter test`.
+    voz: voz ?? VozServicioFalso(),
+    notificaciones: notificaciones ?? NotificacionesServicioFalso(),
+    preferencias: preferencias ?? PreferenciasLocalesEnMemoria(),
+    intervaloConsultaIa: const Duration(milliseconds: 50),
   );
 }
 
@@ -229,13 +428,26 @@ Future<void> _arrancar(
   WidgetTester tester, {
   String? tokenGuardado,
   bool detalleFalla = false,
+  bool iaFalla = false,
+  int ideasExtra = 0,
+  VozServicio? voz,
+  NotificacionesServicio? notificaciones,
+  PreferenciasLocales? preferencias,
 }) async {
   tester.view.physicalSize = const Size(1170, 2700);
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
 
   await tester.pumpWidget(
-    _app(tokenGuardado: tokenGuardado, detalleFalla: detalleFalla),
+    _app(
+      tokenGuardado: tokenGuardado,
+      detalleFalla: detalleFalla,
+      iaFalla: iaFalla,
+      ideasExtra: ideasExtra,
+      voz: voz,
+      notificaciones: notificaciones,
+      preferencias: preferencias,
+    ),
   );
   await tester.pumpAndSettle();
 }
@@ -287,6 +499,13 @@ Future<void> _abrirDetalleDeLaIdeaSembrada(WidgetTester tester) async {
   await tester.tap(find.text('Serie sobre optimizacion de APIs'));
   await tester.pumpAndSettle();
 }
+
+/// El desplazable del detalle de una idea. Se busca DENTRO del `ListView`
+/// porque cada `SelectableText` de las publicaciones trae su propio
+/// `Scrollable` interno, y ese no es el que hay que mover.
+Finder _scrollDelDetalle() => find
+    .descendant(of: find.byType(ListView), matching: find.byType(Scrollable))
+    .first;
 
 /// Idea de mentira para empujar a mano la ruta de edicion.
 ///
@@ -432,6 +651,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Idea #7'), findsOneWidget);
+    // El dato queda debajo de la seccion de publicaciones: el ListView es
+    // perezoso y no lo construye hasta que se desplaza hasta el.
+    await tester.scrollUntilVisible(
+      find.text('Pertenece a Andy Toala'),
+      300,
+      scrollable: _scrollDelDetalle(),
+    );
     expect(find.text('Pertenece a Andy Toala'), findsOneWidget);
 
     await tester.pageBack();
@@ -667,6 +893,35 @@ void main() {
     expect(await almacen.leerToken(), _tokenValido);
   });
 
+  testWidgets(
+      'El registro envia al backend el tono elegido, que es con el que la IA '
+      'redactara las publicaciones', (tester) async {
+    await _arrancar(tester);
+    await _tocar(tester, find.text('Crear una cuenta'));
+
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Nombre completo'), 'Andy Toala');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Correo electrónico'),
+        'creador@atlas.app');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Contraseña'), 'claveDePrueba1');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Repetir contraseña'),
+        'claveDePrueba1');
+
+    // Se cambia el tono por defecto ("cercano") por otro: si el formulario
+    // ignorara la eleccion, la prueba lo delataria.
+    await _tocar(tester, find.text('Cercano'));
+    await tester.tap(find.text('Profesional').last);
+    await tester.pumpAndSettle();
+    await _tocar(tester, find.byKey(const Key('boton-registrar')));
+
+    expect(ultimoRegistro?['tono'], 'profesional');
+    expect(ultimoRegistro?['email'], 'creador@atlas.app');
+    expect(find.text('Mis ideas'), findsOneWidget);
+  });
+
   // --------------------------------------------------- proteccion de rutas
 
   testWidgets(
@@ -730,6 +985,422 @@ void main() {
     await _tocar(tester, find.byKey(const Key('boton-intento-protegido')));
     expect(find.text('Esta sección es privada'), findsOneWidget);
     expect(find.text('Serie sobre optimizacion de APIs'), findsNothing);
+  });
+
+  // ------------------------------------------- Semana 14: funcionalidades nativas
+
+  testWidgets(
+      'El dictado por voz completa el contenido y marca el origen como audio',
+      (tester) async {
+    await _arrancar(tester, voz: VozServicioFalso());
+    await _entrar(tester);
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Nueva idea'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Título'),
+      'Idea capturada por voz',
+    );
+
+    await _tocar(tester, find.byKey(const Key('boton-dictar-idea')));
+    // El motor de reconocimiento (simulado) entrega el texto de inmediato.
+    expect(find.text('Idea dictada de prueba'), findsOneWidget);
+
+    await _tocar(tester, find.byKey(const Key('boton-guardar-idea')));
+
+    expect(llamadas['POST /ideas'], 1);
+    // El origen viaja como 'audio': el contenido se completo dictando, no
+    // escribiendo, y el backend lo distingue del resto de ideas.
+    expect(ideasDelBackend.values.last['origen'], 'audio');
+  });
+
+  testWidgets(
+      'El microfono denegado explica antes de pedir el permiso; si se '
+      'cancela, no llega a escuchar', (tester) async {
+    await _arrancar(
+      tester,
+      voz: VozServicioFalso(estadoInicial: EstadoPermiso.denegado),
+    );
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Nueva idea'));
+    await tester.pumpAndSettle();
+
+    await _tocar(tester, find.byKey(const Key('boton-dictar-idea')));
+    // La explicacion aparece ANTES del permiso: el dialogo de la aplicacion,
+    // no el del sistema operativo.
+    expect(find.text('Usar el micrófono'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Ahora no'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Idea dictada de prueba'), findsNothing);
+  });
+
+  testWidgets(
+      'Tras explicar y conceder el permiso, el dictado por voz empieza a '
+      'escuchar', (tester) async {
+    await _arrancar(
+      tester,
+      voz: VozServicioFalso(
+        estadoInicial: EstadoPermiso.denegado,
+        estadoTrasSolicitar: EstadoPermiso.concedido,
+      ),
+    );
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Nueva idea'));
+    await tester.pumpAndSettle();
+
+    await _tocar(tester, find.byKey(const Key('boton-dictar-idea')));
+    await tester.tap(find.widgetWithText(FilledButton, 'Continuar'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Idea dictada de prueba'), findsOneWidget);
+  });
+
+  testWidgets('El microfono en denegacion permanente ofrece abrir los ajustes',
+      (tester) async {
+    final voz = VozServicioFalso(estadoInicial: EstadoPermiso.denegadoPermanente);
+    await _arrancar(tester, voz: voz);
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Nueva idea'));
+    await tester.pumpAndSettle();
+
+    await _tocar(tester, find.byKey(const Key('boton-dictar-idea')));
+    // Sin explicacion previa: pedir nuevamente el permiso no haria nada, asi
+    // que se salta directo a la salida a ajustes.
+    expect(find.text('Usar el micrófono'), findsNothing);
+    expect(find.text('Micrófono bloqueado'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Abrir ajustes'));
+    await tester.pumpAndSettle();
+
+    expect(voz.ajustesAbiertos, isTrue);
+  });
+
+  testWidgets(
+      'El microfono restringido por politica del sistema no ofrece '
+      'reintentar ni ajustes', (tester) async {
+    await _arrancar(
+      tester,
+      voz: VozServicioFalso(estadoInicial: EstadoPermiso.restringido),
+    );
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Nueva idea'));
+    await tester.pumpAndSettle();
+
+    await _tocar(tester, find.byKey(const Key('boton-dictar-idea')));
+
+    expect(find.textContaining('restringido en este dispositivo'),
+        findsOneWidget);
+    expect(find.text('Micrófono bloqueado'), findsNothing);
+  });
+
+  testWidgets(
+      'Si el reconocedor no esta disponible, se avisa sin bloquear la '
+      'escritura manual', (tester) async {
+    await _arrancar(tester, voz: VozServicioFalso(disponible: false));
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Nueva idea'));
+    await tester.pumpAndSettle();
+
+    await _tocar(tester, find.byKey(const Key('boton-dictar-idea')));
+
+    // Esta es la condicion de INDISPONIBILIDAD del servicio, distinta del
+    // permiso: el permiso esta concedido por defecto en el doble de prueba.
+    expect(find.textContaining('no está disponible en este dispositivo'),
+        findsOneWidget);
+
+    const texto = 'Escrita a mano porque el dictado no esta disponible.';
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Contenido'),
+      texto,
+    );
+    expect(find.text(texto), findsOneWidget);
+  });
+
+  testWidgets(
+      'Activar el aviso de notificaciones explica, pide el permiso y '
+      'enciende el interruptor', (tester) async {
+    await _arrancar(tester);
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Perfil'));
+    await tester.pumpAndSettle();
+
+    var interruptor = tester.widget<SwitchListTile>(
+      find.byKey(const Key('interruptor-notificaciones')),
+    );
+    expect(interruptor.value, isFalse);
+
+    await _tocarEnLista(
+      tester,
+      find.byKey(const Key('interruptor-notificaciones')),
+      const Key('lista-perfil'),
+    );
+    expect(find.text('Avisar cuando una idea se publique'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Continuar'));
+    await tester.pumpAndSettle();
+
+    interruptor = tester.widget<SwitchListTile>(
+      find.byKey(const Key('interruptor-notificaciones')),
+    );
+    expect(interruptor.value, isTrue);
+  });
+
+  testWidgets(
+      'Notificaciones en denegacion permanente ofrece ajustes y deja el '
+      'interruptor apagado', (tester) async {
+    final notificaciones =
+        NotificacionesServicioFalso(estadoInicial: EstadoPermiso.denegadoPermanente);
+    await _arrancar(tester, notificaciones: notificaciones);
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Perfil'));
+    await tester.pumpAndSettle();
+
+    await _tocarEnLista(
+      tester,
+      find.byKey(const Key('interruptor-notificaciones')),
+      const Key('lista-perfil'),
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Continuar'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notificaciones bloqueadas'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Abrir ajustes'));
+    await tester.pumpAndSettle();
+
+    expect(notificaciones.ajustesAbiertos, isTrue);
+    final interruptor = tester.widget<SwitchListTile>(
+      find.byKey(const Key('interruptor-notificaciones')),
+    );
+    expect(interruptor.value, isFalse);
+  });
+
+  testWidgets(
+      'Notificaciones restringidas por politica del sistema avisan sin '
+      'ofrecer ajustes', (tester) async {
+    final notificaciones =
+        NotificacionesServicioFalso(estadoInicial: EstadoPermiso.restringido);
+    await _arrancar(tester, notificaciones: notificaciones);
+    await _entrar(tester);
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Perfil'));
+    await tester.pumpAndSettle();
+
+    await _tocarEnLista(
+      tester,
+      find.byKey(const Key('interruptor-notificaciones')),
+      const Key('lista-perfil'),
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Continuar'));
+    await tester.pumpAndSettle();
+
+    // Una restriccion de politica no se revierte desde los ajustes de la
+    // aplicacion: no se ofrece ese atajo, a diferencia de la denegacion
+    // permanente.
+    expect(find.text('Notificaciones bloqueadas'), findsNothing);
+    expect(find.textContaining('restringidas en este dispositivo'),
+        findsOneWidget);
+    expect(notificaciones.ajustesAbiertos, isFalse);
+  });
+
+  testWidgets(
+      'Una idea que pasa de "procesando" a "publicada" dispara un aviso '
+      'local, y solo entonces', (tester) async {
+    final notificaciones = NotificacionesServicioFalso();
+    await _arrancar(
+      tester,
+      notificaciones: notificaciones,
+      preferencias: PreferenciasLocalesEnMemoria(notificacionesActivadas: true),
+    );
+    await _entrar(tester);
+
+    // Primera lectura: la idea sembrada esta en "borrador". Se registra el
+    // estado, pero no hay transicion que avisar todavia.
+    expect(notificaciones.mostradas, isEmpty);
+
+    ideasDelBackend[7]!['estado'] = 'procesando';
+    await _tocar(tester, find.byKey(const Key('boton-cargar-ideas')));
+    // "borrador" -> "procesando" tampoco es la transicion que interesa.
+    expect(notificaciones.mostradas, isEmpty);
+
+    ideasDelBackend[7]!['estado'] = 'publicada';
+    await _tocar(tester, find.byKey(const Key('boton-cargar-ideas')));
+
+    expect(notificaciones.mostradas, hasLength(1));
+    expect(notificaciones.mostradas.single.id, 7);
+    expect(notificaciones.mostradas.single.cuerpo, contains('publicación'));
+  });
+
+  // ------------------------------------------ publicaciones con IA (Sem. 15)
+
+  testWidgets(
+      'Generar con IA encola el trabajo, espera al worker y muestra la '
+      'publicacion para la red elegida', (tester) async {
+    final notificaciones = NotificacionesServicioFalso();
+    await _arrancar(
+      tester,
+      notificaciones: notificaciones,
+      preferencias: PreferenciasLocalesEnMemoria(notificacionesActivadas: true),
+    );
+    await _entrar(tester);
+    await _abrirDetalleDeLaIdeaSembrada(tester);
+
+    // Las dos publicaciones que ya existian llegan por su propio endpoint.
+    expect(llamadas['GET /ideas/7/publicaciones'], 1);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('boton-generar-publicacion')),
+      300,
+      scrollable: _scrollDelDetalle(),
+    );
+    expect(find.byKey(const Key('publicacion-2')), findsOneWidget);
+
+    await _tocar(tester, find.text('X'));
+    await _tocar(tester, find.byKey(const Key('boton-generar-publicacion')));
+
+    // Un solo POST y varias consultas del job: queued -> processing -> done.
+    expect(llamadas['POST /ideas/7/publicar'], 1);
+    expect(llamadas['GET /jobs/job-1'], greaterThanOrEqualTo(2));
+    expect(
+      find.text('Post para x: Serie sobre optimizacion de APIs'),
+      findsOneWidget,
+    );
+    expect(find.text('Publicación para X lista.'), findsOneWidget);
+    expect(find.text('Redactando…'), findsNothing);
+
+    // La idea se relee: ya no es un borrador y cuenta la publicacion nueva.
+    await tester.scrollUntilVisible(
+      find.text('publicaciones'),
+      -300,
+      scrollable: _scrollDelDetalle(),
+    );
+    expect(find.text('3'), findsOneWidget);
+    expect(ideasDelBackend[7]!['estado'], 'publicada');
+
+    // Y llega el aviso local de la Semana 14.
+    expect(notificaciones.mostradas.single.titulo, 'Tu publicación está lista');
+  });
+
+  testWidgets(
+      'Si la IA falla, la pantalla explica el motivo y la idea no queda '
+      'procesando', (tester) async {
+    await _arrancar(tester, iaFalla: true);
+    await _entrar(tester);
+    await _abrirDetalleDeLaIdeaSembrada(tester);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('boton-generar-publicacion')),
+      300,
+      scrollable: _scrollDelDetalle(),
+    );
+    await _tocar(tester, find.byKey(const Key('boton-generar-publicacion')));
+
+    expect(find.textContaining('OPENROUTER_API_KEY'), findsOneWidget);
+    // El boton vuelve a estar disponible para reintentar.
+    final boton = tester.widget<FilledButton>(
+      find.byKey(const Key('boton-generar-publicacion')),
+    );
+    expect(boton.onPressed, isNotNull);
+    // No se creo ninguna publicacion nueva y la idea volvio a su estado.
+    expect(publicacionesDelBackend[7], hasLength(2));
+    expect(find.text('procesando'), findsNothing);
+  });
+
+  // ------------------------------------- paginacion y busqueda (Semana 15)
+
+  testWidgets(
+      'El listado llega de 20 en 20 y "Cargar mas" trae la pagina siguiente',
+      (tester) async {
+    await _arrancar(tester, ideasExtra: 25);
+    await _entrar(tester);
+
+    // 26 ideas en el servidor (25 de relleno + la sembrada), 20 en pantalla.
+    expect(find.text('26 ideas'), findsOneWidget);
+    final cargarMas = find.byKey(const Key('boton-cargar-mas'));
+    await tester.scrollUntilVisible(cargarMas, 400,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.text('Cargar más (20 de 26)'), findsOneWidget);
+    expect(find.text('Serie sobre optimizacion de APIs'), findsNothing);
+
+    await _tocar(tester, cargarMas);
+
+    expect(llamadas['GET /ideas'], 2);
+    await tester.scrollUntilVisible(
+      find.text('Serie sobre optimizacion de APIs'),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('Serie sobre optimizacion de APIs'), findsOneWidget);
+    // Ya esta todo: el boton desaparece.
+    expect(cargarMas, findsNothing);
+  });
+
+  testWidgets(
+      'La busqueda filtra en el servidor y, sin coincidencias, lo explica',
+      (tester) async {
+    await _arrancar(tester, ideasExtra: 25);
+    await _entrar(tester);
+
+    await tester.enterText(
+        find.byKey(const Key('campo-buscar-ideas')), 'optimizacion');
+    // Espera a que el usuario deje de escribir antes de consultar.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 idea'), findsOneWidget);
+    expect(find.text('Serie sobre optimizacion de APIs'), findsOneWidget);
+    expect(find.text('Idea de relleno 0'), findsNothing);
+
+    await tester.enterText(
+        find.byKey(const Key('campo-buscar-ideas')), 'no existe');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.text('Sin resultados'), findsOneWidget);
+
+    await _tocar(tester, find.text('Ver todas mis ideas'));
+    expect(find.text('26 ideas'), findsOneWidget);
+  });
+
+  // ------------------------------------ rendimiento de publicaciones (S15)
+
+  testWidgets(
+      'Registrar el rendimiento de una publicacion lo guarda y lo muestra '
+      'en la tarjeta', (tester) async {
+    await _arrancar(tester);
+    await _entrar(tester);
+    await _abrirDetalleDeLaIdeaSembrada(tester);
+
+    final registrar = find.byKey(const Key('registrar-metrica-2'));
+    await tester.scrollUntilVisible(registrar, 300,
+        scrollable: _scrollDelDetalle());
+    expect(find.textContaining('Aún no registras'), findsWidgets);
+    await _tocar(tester, registrar);
+
+    // Un campo vacio no se envia.
+    await _tocar(tester, find.byKey(const Key('boton-guardar-metrica')));
+    expect(find.text('Obligatorio (0 si no hubo)'), findsWidgets);
+    expect(llamadas['POST /publicaciones/2/metricas'], isNull);
+
+    await tester.enterText(find.byKey(const Key('campo-metrica-likes')), '1520');
+    await tester.enterText(
+        find.byKey(const Key('campo-metrica-comentarios')), '40');
+    await tester.enterText(
+        find.byKey(const Key('campo-metrica-compartidos')), '12');
+    await tester.enterText(
+        find.byKey(const Key('campo-metrica-alcance')), '9800');
+    await _tocar(tester, find.byKey(const Key('boton-guardar-metrica')));
+
+    expect(llamadas['POST /publicaciones/2/metricas'], 1);
+    expect(metricasDelBackend[2]!.single['likes'], 1520);
+    expect(find.text('Rendimiento registrado.'), findsOneWidget);
+    // La tarjeta muestra la medicion, en formato compacto.
+    expect(find.text('1,5 k'), findsOneWidget);
+    expect(find.text('9,8 k'), findsOneWidget);
+
+    // Y la evolucion lista el registro.
+    await _tocar(tester, find.byKey(const Key('historial-metricas-2')));
+    expect(find.text('Evolución en LinkedIn'), findsOneWidget);
+    expect(find.byKey(const Key('registro-metrica-1')), findsOneWidget);
   });
 
   // ---------------------------------------------------------- diagnostico

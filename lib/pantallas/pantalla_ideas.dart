@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../estado/ambito_atlas.dart';
@@ -13,6 +15,11 @@ import '../widgets/tarjeta_idea.dart';
 /// La pantalla no guarda las ideas: las pide al controlador y se redibuja
 /// cuando este avisa. Por eso al volver de otra pestaña o del detalle de una
 /// idea la lista ya está cargada, sin repetir la llamada.
+///
+/// Desde la Semana 15 el listado es PAGINADO (20 ideas por petición, botón
+/// "Cargar más") y tiene un buscador que filtra en el servidor, no en el
+/// teléfono: con cientos de ideas, bajarlas todas para filtrar localmente
+/// gastaría datos y memoria en filas que el usuario no va a ver.
 class PantallaIdeas extends StatefulWidget {
   const PantallaIdeas({super.key});
 
@@ -22,6 +29,34 @@ class PantallaIdeas extends StatefulWidget {
 
 class _PantallaIdeasState extends State<PantallaIdeas> {
   bool _verDiagnostico = false;
+  late final TextEditingController _buscador = TextEditingController(
+    text: AmbitoAtlas.leer(context).ideas.busqueda,
+  );
+  Timer? _espera;
+
+  @override
+  void dispose() {
+    _espera?.cancel();
+    _buscador.dispose();
+    super.dispose();
+  }
+
+  /// Espera a que el usuario deje de escribir (400 ms) antes de consultar: así
+  /// buscar "marca personal" es UNA petición y no catorce, una por letra.
+  void _alEscribir(String texto) {
+    _espera?.cancel();
+    _espera = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) AmbitoAtlas.leer(context).ideas.buscar(texto);
+    });
+    setState(() {});
+  }
+
+  void _limpiarBusqueda() {
+    _espera?.cancel();
+    _buscador.clear();
+    AmbitoAtlas.leer(context).ideas.buscar('');
+    setState(() {});
+  }
 
   @override
   void initState() {
@@ -62,7 +97,7 @@ class _PantallaIdeasState extends State<PantallaIdeas> {
                 // Resumen del listado, con el contador y el acceso al detalle
                 // técnico de la última respuesta.
                 _BarraResumen(
-                  total: controlador.ideas.length,
+                  total: controlador.total,
                   cargando: controlador.cargando,
                   verDiagnostico: _verDiagnostico,
                   alRecargar: controlador.cargando ? null : controlador.cargar,
@@ -108,6 +143,25 @@ class _PantallaIdeasState extends State<PantallaIdeas> {
                   ),
                 ],
 
+                const SizedBox(height: 12),
+                TextField(
+                  key: const Key('campo-buscar-ideas'),
+                  controller: _buscador,
+                  onChanged: _alEscribir,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: 'Buscar en mis ideas',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _buscador.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Limpiar búsqueda',
+                            icon: const Icon(Icons.close),
+                            onPressed: _limpiarBusqueda,
+                          ),
+                  ),
+                ),
+
                 if (hayBorrador) ...[
                   const SizedBox(height: 12),
                   _TarjetaBorrador(
@@ -127,6 +181,16 @@ class _PantallaIdeasState extends State<PantallaIdeas> {
 
                 if (controlador.cargando && controlador.ideas.isEmpty)
                   const EsqueletoLista()
+                else if (controlador.ideas.isEmpty &&
+                    controlador.error == null &&
+                    controlador.busqueda.isNotEmpty)
+                  EstadoVacio(
+                    icono: Icons.search_off,
+                    titulo: 'Sin resultados',
+                    mensaje: 'Ninguna idea contiene "${controlador.busqueda}".',
+                    textoAccion: 'Ver todas mis ideas',
+                    alPulsarAccion: _limpiarBusqueda,
+                  )
                 else if (controlador.ideas.isEmpty && controlador.error == null)
                   EstadoVacio(
                     icono: Icons.lightbulb_outline,
@@ -144,12 +208,33 @@ class _PantallaIdeasState extends State<PantallaIdeas> {
                       padding: const EdgeInsets.only(bottom: 12),
                       child: TarjetaIdea(
                         idea: idea,
-                        alPulsar: () => Navigator.of(context).pushNamed(
-                          Rutas.detalleIdea,
-                          arguments: idea,
-                        ),
+                        alPulsar: () => Navigator.of(
+                          context,
+                        ).pushNamed(Rutas.detalleIdea, arguments: idea),
                       ),
                     ),
+
+                if (controlador.hayMas)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: OutlinedButton.icon(
+                      key: const Key('boton-cargar-mas'),
+                      onPressed: controlador.cargandoMas
+                          ? null
+                          : controlador.cargarMas,
+                      icon: controlador.cargandoMas
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.expand_more),
+                      label: Text(
+                        'Cargar más (${controlador.ideas.length} de '
+                        '${controlador.total})',
+                      ),
+                    ),
+                  ),
 
                 if (controlador.ideas.isNotEmpty)
                   Padding(
@@ -259,7 +344,9 @@ class _TarjetaBorrador extends StatelessWidget {
         leading: Icon(Icons.edit_note, color: TemaAtlas.realce),
         title: Text(
           'Tienes un borrador sin guardar',
-          style: tema.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          style: tema.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
         ),
         subtitle: Text(
           titulo.isEmpty ? 'Sin título' : titulo,

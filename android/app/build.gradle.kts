@@ -13,6 +13,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // flutter_local_notifications (Taller S14) usa APIs de java.time en su
+        // implementacion Android, que en minSdk < 26 requieren desugaring de
+        // la biblioteca nucleo. Sin esto, `checkDebugAarMetadata` rechaza la
+        // compilacion.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -41,4 +46,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

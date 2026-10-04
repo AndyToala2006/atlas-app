@@ -1,15 +1,17 @@
 import 'package:flutter/widgets.dart';
 
 import '../servicios/atlas_api.dart';
+import '../servicios/voz_servicio.dart';
 import 'controlador_ideas.dart';
 import 'controlador_panel.dart';
+import 'controlador_publicaciones.dart';
 import 'controlador_sesion.dart';
 
 /// Punto de acceso al estado de la aplicación desde cualquier pantalla.
 ///
 /// Es un [InheritedWidget] colocado por encima del `Navigator`, así que todas
 /// las rutas —las de la barra inferior y las abiertas con `push`— leen los
-/// mismos tres controladores. Ese es el mecanismo de manejo de estado del
+/// mismos controladores. Ese es el mecanismo de manejo de estado del
 /// proyecto: `ChangeNotifier` para guardar y notificar, `InheritedWidget` para
 /// repartir, `ListenableBuilder` para redibujar solo lo que depende del dato.
 ///
@@ -23,6 +25,8 @@ class AmbitoAtlas extends InheritedWidget {
     required this.sesion,
     required this.ideas,
     required this.panel,
+    required this.publicaciones,
+    required this.voz,
     required super.child,
   });
 
@@ -34,6 +38,16 @@ class AmbitoAtlas extends InheritedWidget {
   final ControladorSesion sesion;
   final ControladorIdeas ideas;
   final ControladorPanel panel;
+
+  /// Publicaciones generadas con IA y el trabajo de generación en curso
+  /// (Semana 15).
+  final ControladorPublicaciones publicaciones;
+
+  /// Dictado por voz (Taller Semana 14). No es un `ChangeNotifier`: la
+  /// escucha es una interacción efímera de una sola pantalla (el formulario
+  /// de nueva idea), no un dato que deba sobrevivir a la navegación como sí
+  /// pasa con la sesión, las ideas o el panel.
+  final VozServicio voz;
 
   static AmbitoAtlas de(BuildContext context) {
     final ambito = context.dependOnInheritedWidgetOfExactType<AmbitoAtlas>();
@@ -53,6 +67,9 @@ class AmbitoAtlas extends InheritedWidget {
   static ControladorSesion sesionDe(BuildContext context) => de(context).sesion;
   static ControladorIdeas ideasDe(BuildContext context) => de(context).ideas;
   static ControladorPanel panelDe(BuildContext context) => de(context).panel;
+  static ControladorPublicaciones publicacionesDe(BuildContext context) =>
+      de(context).publicaciones;
+  static VozServicio vozDe(BuildContext context) => de(context).voz;
 
   /// Los controladores son las mismas instancias durante toda la ejecución;
   /// quien necesita enterarse de un cambio escucha al `ChangeNotifier`, no a
@@ -62,5 +79,7 @@ class AmbitoAtlas extends InheritedWidget {
       api != oldWidget.api ||
       sesion != oldWidget.sesion ||
       ideas != oldWidget.ideas ||
-      panel != oldWidget.panel;
+      panel != oldWidget.panel ||
+      publicaciones != oldWidget.publicaciones ||
+      voz != oldWidget.voz;
 }

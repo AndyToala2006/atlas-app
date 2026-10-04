@@ -12,8 +12,8 @@ import 'controlador_sesion.dart';
 /// lugar de una pantalla vacía y una nueva llamada a la API.
 class ControladorPanel extends ChangeNotifier {
   ControladorPanel({required AtlasApi api, required ControladorSesion sesion})
-      : _api = api,
-        _sesion = sesion;
+    : _api = api,
+      _sesion = sesion;
 
   final AtlasApi _api;
   final ControladorSesion _sesion;
@@ -42,12 +42,22 @@ class ControladorPanel extends ChangeNotifier {
         _sesion.expirar();
         _error = 'La API rechazó la solicitud: la sesión ya no es válida.';
       } else {
-        _error = e.esDeRed ? '${e.mensaje}\n${e.sugerencia ?? ''}'.trim() : e.mensaje;
+        _error = e.esDeRed
+            ? '${e.mensaje}\n${e.sugerencia ?? ''}'.trim()
+            : e.mensaje;
       }
     } finally {
       _cargando = false;
       notifyListeners();
     }
+  }
+
+  /// Llamar tras una escritura que cambia los números del panel (registrar una
+  /// métrica, generar una publicación). El backend ya borró su caché; aquí se
+  /// relee solo si el panel tenía datos, para no hacer peticiones que nadie
+  /// verá. Si aún no se había abierto, se cargará fresco al entrar.
+  Future<void> invalidar() async {
+    if (_metricas != null && !_cargando) await cargar();
   }
 
   void limpiar() {

@@ -26,6 +26,14 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Taller Semana 14: cadenas de proposito de iOS. Sin ellas iOS no
+	     muestra un error: cierra la aplicacion en cuanto se pide el permiso,
+	     así que tienen que existir ANTES de la primera prueba en un
+	     dispositivo con iOS. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Atlas usa el micrófono para dictar por voz el contenido de una idea, como alternativa a escribirlo a mano. Solo se activa mientras mantienes la escucha abierta.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Atlas envía el audio dictado al reconocedor de voz del sistema para convertirlo en el texto de tu idea. El audio no se guarda ni se envía al backend de Atlas.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -93,6 +93,18 @@ class Validadores {
     return null;
   }
 
+  /// Una métrica de rendimiento (likes, alcance...): entero, sin signo y con el
+  /// mismo tope que el backend (`MetricaCreate`, `ge=0`, `le=1e9`).
+  static String? metrica(String? valor) {
+    final texto = (valor ?? '').trim();
+    if (texto.isEmpty) return 'Obligatorio (0 si no hubo)';
+    final numero = int.tryParse(texto);
+    if (numero == null) return 'Solo números enteros';
+    if (numero < 0) return 'No puede ser negativo';
+    if (numero > 1000000000) return 'Valor demasiado grande';
+    return null;
+  }
+
   /// Convierte el texto del campo de etiquetas en la lista que espera la API.
   static List<String> partirEtiquetas(String valor) => valor
       .split(',')
