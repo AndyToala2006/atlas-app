@@ -18,6 +18,7 @@ import 'package:atlas_app/main.dart';
 import 'package:atlas_app/servicios/almacen_sesion.dart';
 import 'package:atlas_app/servicios/atlas_api.dart';
 import 'package:atlas_app/servicios/preferencias_locales.dart';
+import 'package:atlas_app/widgets/tarjeta_idea.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -89,10 +90,18 @@ void main() {
     );
     await tester.ensureVisible(find.byKey(const Key('boton-guardar-idea')));
     await tester.tap(find.byKey(const Key('boton-guardar-idea')));
-    await _esperar(tester, find.text(titulo));
+    // Se busca el titulo DENTRO de la tarjeta del listado: durante la animacion
+    // de cierre el campo del formulario sigue montado con el mismo texto, y
+    // `find.text` lo encontraria a el primero.
+    final tarjeta = find.descendant(
+      of: find.byType(TarjetaIdea),
+      matching: find.text(titulo),
+    );
+    await _esperar(tester, tarjeta);
+    await tester.pumpAndSettle();
 
     // 3. Abrir el detalle (GET /ideas/{id} y GET /ideas/{id}/publicaciones).
-    await tester.tap(find.text(titulo));
+    await tester.tap(tarjeta);
     await _esperar(tester, find.text('Publicaciones con IA'));
 
     // 4. Generar con IA: 202, consultas a /jobs/{id} y lectura del resultado.
@@ -114,7 +123,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('boton-confirmar-eliminar-idea')));
     await _esperar(tester, find.text('Idea eliminada de la base de datos.'));
-    expect(find.text(titulo), findsNothing);
+    await tester.pumpAndSettle();
+    expect(tarjeta, findsNothing);
 
     // 6. Comprobacion independiente de la interfaz: la base ya no la tiene.
     final login = await apiDePreparacion.iniciarSesion(
